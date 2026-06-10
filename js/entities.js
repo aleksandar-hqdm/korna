@@ -14,6 +14,7 @@ class Player {
     this.homeX = this.x; this.homeY = this.y;
     this.vx = 0; this.vy = 0;
     this.facing = this.side === "home" ? 0 : Math.PI; // home looks right
+    this.faceDir = this.side === "home" ? 1 : -1;      // sprite mirror dir (hysteresis, set from vx)
     this.driveX = 0; this.driveY = 0; this.sprint = false;
     this.animPhase = rnd(0, 6);
     this.speedNorm = 0;
@@ -98,6 +99,8 @@ class Player {
 
   _finish(dt) {
     const m = Math.hypot(this.vx, this.vy);
+    // sprite faces left/right only on a decisive horizontal move (no flicker on vertical runs)
+    if (this.vx > 22) this.faceDir = 1; else if (this.vx < -22) this.faceDir = -1;
     this.animPhase += (m / 26) * dt * 6 + dt * 0.6;
     this.speedNorm = m / CFG.maxSpeed;
     const r = this.radius;

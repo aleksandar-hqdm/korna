@@ -22,7 +22,7 @@
     banner: 0, bannerText: "", bannerSub: "",
     countdown: 0,
     celebrateTimer: 0,
-    cam: { x: CFG.midX, y: CFG.midY, z: 2.55 },
+    cam: { x: CFG.midX, y: CFG.midY, z: 2.45 },
     shake: 0, freeze: 0,
     t: 0,
   };
@@ -43,8 +43,10 @@
     let tx = G.ball.x, ty = G.ball.y;
     if (G.controlled) { tx = lerp(G.ball.x, G.controlled.x, 0.3); ty = lerp(G.ball.y, G.controlled.y, 0.3); }
     tx = clamp(tx, hw, CFG.W - hw); ty = clamp(ty, hh, CFG.H - hh);
-    const k = Math.min(1, 8 * dt);
-    G.cam.x += (tx - G.cam.x) * k; G.cam.y += (ty - G.cam.y) * k;
+    // gentle follow with a small deadzone so the camera doesn't jitter on dribbles
+    const dx = tx - G.cam.x, dy = ty - G.cam.y, k = Math.min(1, 6 * dt);
+    if (Math.abs(dx) > 5) G.cam.x += dx * k;
+    if (Math.abs(dy) > 5) G.cam.y += dy * k;
   }
 
   /* ----------------------------- setup ----------------------------- */

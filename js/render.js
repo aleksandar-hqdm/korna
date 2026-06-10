@@ -76,11 +76,17 @@ const Render = (() => {
     for (let i = 0; i * 56 < pw; i++) { x.fillStyle = ads[i % ads.length]; x.fillRect(L + i * 56, T - 14, 52, 7); x.fillStyle = ads[(i + 3) % ads.length]; x.fillRect(L + i * 56, B + 7, 52, 7); }
     for (let i = 0; i * 56 < ph; i++) { x.fillStyle = ads[(i + 1) % ads.length]; x.fillRect(L - 14, T + i * 56, 7, 52); x.fillStyle = ads[(i + 4) % ads.length]; x.fillRect(R + 7, T + i * 56, 7, 52); }
 
-    // ---- court ----
-    const g = x.createLinearGradient(0, T, 0, B); g.addColorStop(0, "#2f8a4f"); g.addColorStop(1, "#236b3d");
+    // ---- court (textured turf) ----
+    const g = x.createLinearGradient(0, T, 0, B); g.addColorStop(0, "#34965c"); g.addColorStop(1, "#236b3d");
     x.fillStyle = g; x.fillRect(L, T, pw, ph);
-    for (let i = 0; i < 12; i++) { x.fillStyle = i % 2 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"; const sw = pw / 12; x.fillRect(L + i * sw, T, sw, ph); }
-    x.globalAlpha = 0.05; for (let i = 0; i < 800; i++) { x.fillStyle = Math.random() < 0.5 ? "#000" : "#fff"; x.fillRect(L + Math.random() * pw, T + Math.random() * ph, 1.4, 1.4); } x.globalAlpha = 1;
+    // mown bands
+    const bands = 9, bbh = ph / bands;
+    for (let i = 0; i < bands; i++) { x.fillStyle = i % 2 ? "rgba(255,255,255,0.055)" : "rgba(0,35,0,0.06)"; x.fillRect(L, T + i * bbh, pw, bbh); }
+    // soft turf patches (worn / lush)
+    for (let i = 0; i < 8; i++) { const rx = L + Math.random() * pw, ry = T + Math.random() * ph, rr = 70 + Math.random() * 150; const rg = x.createRadialGradient(rx, ry, 4, rx, ry, rr); rg.addColorStop(0, Math.random() < 0.5 ? "rgba(210,255,180,0.05)" : "rgba(0,25,0,0.06)"); rg.addColorStop(1, "rgba(0,0,0,0)"); x.fillStyle = rg; x.fillRect(L, T, pw, ph); }
+    // individual grass blades
+    const greens = ["#2c8a50", "#3aa05f", "#288046", "#46b06a", "#1f6d3c", "#3f9c5c"];
+    x.globalAlpha = 0.5; for (let i = 0; i < 4600; i++) { x.fillStyle = greens[(Math.random() * greens.length) | 0]; x.fillRect(L + Math.random() * pw, T + Math.random() * ph, 1, 2); } x.globalAlpha = 1;
 
     x.strokeStyle = "rgba(255,255,255,0.82)"; x.lineWidth = 3;
     x.strokeRect(L + 5, T + 5, pw - 10, ph - 10);
@@ -105,18 +111,31 @@ const Render = (() => {
     pitch = c;
   }
   function spectators(x) {
-    const skins = ["#f0c39b", "#a8703f", "#e6b487", "#5a3a23", "#eec39a", "#d8a878"];
-    const tops = ["#e23b4d", "#1a57c8", "#ffd23a", "#16a64a", "#ff7a18", "#e0e0e0", "#c86bd0", "#2bb6a8"];
+    const skins = ["#f0c39b", "#a8703f", "#e6b487", "#5a3a23", "#eec39a", "#d8a878", "#c98a5a"];
+    const tops = ["#e23b4d", "#1a57c8", "#ffd23a", "#16a64a", "#ff7a18", "#e0e0e0", "#c86bd0", "#2bb6a8", "#7d5fe0", "#ef6aa0"];
+    const hairs = ["#1a1208", "#3a2a1a", "#5d3f24", "#7a572b", "#0a0a0a", "#8a6633", "#caa24f"];
     const pick = (a) => a[(Math.random() * a.length) | 0];
-    function row(yBase) {
-      for (let px = CFG.left + 6; px < CFG.right; px += 25) {
-        const j = (Math.random() * 6 - 3);
-        x.fillStyle = "rgba(0,0,0,0.22)"; x.fillRect(px - 7, yBase + j + 13, 14, 3);     // bench shadow
-        x.fillStyle = pick(tops); x.fillRect(px - 6, yBase + j, 12, 15);                  // torso
-        x.fillStyle = pick(skins); x.beginPath(); x.arc(px, yBase + j - 4, 5.5, 0, Math.PI * 2); x.fill(); // head
-      }
+    function person(px, py, s) {
+      x.fillStyle = "rgba(0,0,0,0.25)"; x.fillRect(px - 4 * s, py + 5 * s, 9 * s, 2 * s);                 // shadow
+      x.fillStyle = pick(tops); x.fillRect(px - 4 * s, py - s, 9 * s, 8 * s);                              // torso
+      x.fillStyle = pick(skins); x.beginPath(); x.arc(px, py - 3 * s, 3 * s, 0, Math.PI * 2); x.fill();    // head
+      x.fillStyle = pick(hairs); x.fillRect(px - 3 * s, py - 6 * s, 6 * s, 2.4 * s);                       // hair
     }
-    row(CFG.top - 46); row(CFG.bottom + 20);
+    // pack a stand rectangle with rows of people (rows further back are smaller + dimmer)
+    function band(rx, ry, rw, rh) {
+      const sx = 11, sy = 11;
+      for (let yy = ry + 4; yy < ry + rh; yy += sy) {
+        const front = rh > 0 ? (yy - ry) / rh : 1;
+        const s = 0.82 + front * 0.32;
+        x.globalAlpha = 0.72 + front * 0.28;
+        for (let xx = rx + 4 + Math.random() * 5; xx < rx + rw - 2; xx += sx) person(xx, yy, s);
+      }
+      x.globalAlpha = 1;
+    }
+    band(2, 2, CFG.W - 4, CFG.top - 18);                                  // top stand
+    band(2, CFG.bottom + 16, CFG.W - 4, CFG.H - CFG.bottom - 18);          // bottom stand
+    band(2, CFG.top, CFG.left - 18, CFG.ph);                              // left stand
+    band(CFG.right + 16, CFG.top, CFG.W - CFG.right - 18, CFG.ph);         // right stand
   }
   function drawGoal(x, gx, dir) {
     const depth = CFG.goalDepth, x0 = dir === 1 ? gx - depth : gx, w = depth, y0 = CFG.goalTop, h = CFG.goalMouth;
@@ -141,7 +160,8 @@ const Render = (() => {
     ctx.restore();
     // world -> screen; entities drawn UPRIGHT on the tilted ground, scaled by depth
     const proj = (wx, wy) => [CX + (wx - cam.x) * z, CY + (wy - cam.y) * z * TY];
-    const depthOf = (wy) => clamp(1 + (wy - cam.y) * 0.0009, 0.86, 1.16);
+    // depth scale tied to FIELD position (not camera) so players don't pulse in size
+    const depthOf = (wy) => clamp(0.94 + ((wy - CFG.top) / CFG.ph) * 0.14, 0.94, 1.08);
     const all = G.players.slice().sort((a, b) => a.y - b.y);
     for (const p of all) {
       const s = proj(p.x, p.y);
@@ -195,7 +215,7 @@ const Render = (() => {
     const running = p.speedNorm > 0.16;
     const stride = running ? Math.sin(p.animPhase) : Math.sin(performance.now() / 380) * 0.22;
     const hop = p.celebrate > 0 ? Math.abs(Math.sin(p.celebrate * 12)) * H * 0.16 : 0;
-    const dir = Math.cos(p.facing) < -0.05 ? -1 : 1;
+    const dir = p.faceDir < 0 ? -1 : 1;
     const skin = p.skin || "#eebd95", hair = p.hair || "#3a2a1a";
     const shirt = p.kit.shirt, shorts = p.kit.shorts || "#222", boot = "#23252e";
 
@@ -252,7 +272,7 @@ const Render = (() => {
       ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95;
       ctx.beginPath(); ctx.ellipse(sx, sy, dw * 0.42, dw * 0.19, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
     }
-    const faceLeft = Math.cos(p.facing) < -0.05;
+    const faceLeft = p.faceDir < 0;
     ctx.save();
     ctx.translate(sx, sy - hop);
     if (faceLeft) ctx.scale(-1, 1);
