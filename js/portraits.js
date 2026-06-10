@@ -338,7 +338,7 @@ const Portrait = (() => {
     ar86: { skin: "#d8a878", hair: "#241a12", style: "mullet", beard: "stubble", eyes: "#2a1a10", mouth: "grin", jersey: "#7cc3e9", jersey2: "#13224f", broad: true },
     nl88: { skin: "#e9c39c", hair: "#cba24a", style: "fringe", eyes: "#3a6f9a", mouth: "neutral", jersey: "#ff7a18", jersey2: "#0c0c0c" },
     en98: { kid: false, skin: "#f0cdab", hair: "#7a5230", style: "shortYoung", eyes: "#5f6f52", mouth: "happy", jersey: "#f4f6fb", jersey2: "#c8202f", faceW: 23, faceH: 25 },
-    br02: { skin: "#9c6638", hair: "#0d0a08", style: "ponytailCurly", behind: true, eyes: "#1a120c", mouth: "megagrin", toothGap: true, jersey: "#ffe11a", jersey2: "#0f3fae", broad: true },
+    br02: { skin: "#9c6638", hair: "#1a1208", style: "shaved", eyes: "#1a120c", mouth: "megagrin", jersey: "#ffe11a", jersey2: "#0f3fae", broad: true },
     it94: { skin: "#e3b489", hair: "#2a1d12", style: "ponytail", behind: true, beard: "goatee", beardColor: "#2a1d12", eyes: "#5a4a2a", mouth: "determined", jersey: "#1f4fb0", jersey2: "#fff" },
     jp98: { skin: "#f1cda6", hair: "#df8f33", hairRoot: "#2a1a0e", style: "spiky", eyes: "#2a1a10", mouth: "neutral", jersey: "#1768d6", jersey2: "#fff" },
     ng94: { skin: "#5a3a23", hair: "#0a0a0a", style: "shaved", beard: "goatee", beardColor: "#0a0a0a", eyes: "#1a0f08", mouth: "megagrin", jersey: "#16a64a", jersey2: "#fff", broad: true },

@@ -22,7 +22,7 @@
     banner: 0, bannerText: "", bannerSub: "",
     countdown: 0,
     celebrateTimer: 0,
-    cam: { x: CFG.midX, y: CFG.midY, z: 2.4 },
+    cam: { x: CFG.midX, y: CFG.midY, z: 2.55 },
     shake: 0, freeze: 0,
     t: 0,
   };
@@ -30,7 +30,7 @@
   /* ----------------------------- camera ----------------------------- */
   function camBounds() {
     const z = G.cam.z;
-    return { hw: CFG.W / 2 / z, hh: CFG.H / 2 / z };
+    return { hw: CFG.W / 2 / z, hh: CFG.H / 2 / (z * CFG.tilt) };  // tilt squashes the vertical view
   }
   function snapCamera() {
     const { hw, hh } = camBounds();
@@ -50,6 +50,7 @@
   /* ----------------------------- setup ----------------------------- */
   function newMatch(team) {
     G.away = team;
+    Render.buildPitch(team);   // distinct stadium per opponent
     G.home = buildKornaSquad();
     G.awayPlayers = buildLegendSquad(team);
     G.players = G.home.concat(G.awayPlayers);

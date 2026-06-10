@@ -39,6 +39,7 @@ const CFG = {
 
   matchSeconds: 120,
   goalCelebration: 2.6,
+  tilt: 0.62,                // vertical squash of the ground for the 3/4 action camera
 
   // --- Street Hoop arcade layer ---
   turboDrain: 0.55,        // turbo used per second while sprinting

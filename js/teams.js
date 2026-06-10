@@ -73,7 +73,7 @@ const TEAMS = [
     diff: 3, style: "pace", blurb: "Blink and the striker's gone.",
     mod: { speed: 1.22, accel: 1.18, power: 1.05, skill: 1.0, defense: 1.0 } },
 
-  { id: "br02", name: "Brazil", era: "Ronaldo & Ronaldinho era", star: "R-R-R", flag: "🇧🇷",
+  { id: "br02", name: "Brazil", era: "Ronaldo & Ronaldinho era", star: "R. Nazário", flag: "🇧🇷",
     kit: { shirt: "#ffe11a", shorts: "#0f3fae", sock: "#0f3fae", num: "#127a3a" },
     skin: "#9c6638", hair: "#0d0a08",
     diff: 5, style: "flair", blurb: "Pure magic. The hardest test.",

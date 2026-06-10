@@ -28,8 +28,17 @@ const Render = (() => {
   }
   function setLS(ctx, v) { try { ctx.letterSpacing = v; } catch (e) {} }
 
-  /* ---------- static pitch = stadium scene + court ---------- */
-  function buildPitch() {
+  // a distinct stadium look per opponent
+  const ENVS = {
+    br82: { stand: "#3a5a2e", accent: "#fff2c0" }, ar86: { stand: "#1d3a6e", accent: "#ffe27a" },
+    nl88: { stand: "#5a3410", accent: "#ff9d3f" }, en98: { stand: "#363b46", accent: "#cfd6e6" },
+    br02: { stand: "#2e6a3a", accent: "#ffe27a" }, it94: { stand: "#243a6e", accent: "#9fd0ff" },
+    jp98: { stand: "#2a3550", accent: "#ff9d9d" }, ng94: { stand: "#1f5a32", accent: "#eaeaea" },
+  };
+
+  /* ---------- static pitch = stadium scene + court (per-team look) ---------- */
+  function buildPitch(team) {
+    const env = (team && ENVS[team.id]) || { stand: "#2b3446", accent: "#ffffff" };
     const c = document.createElement("canvas"); c.width = CFG.W; c.height = CFG.H;
     const x = c.getContext("2d");
     const L = CFG.left, R = CFG.right, T = CFG.top, B = CFG.bottom, pw = CFG.pw, ph = CFG.ph;
@@ -37,7 +46,7 @@ const Render = (() => {
     // stands (lighter toward the court)
     x.fillStyle = "#0b0e15"; x.fillRect(0, 0, CFG.W, CFG.H);
     const sg = x.createRadialGradient(CFG.midX, CFG.midY, ph * 0.5, CFG.midX, CFG.midY, CFG.W * 0.72);
-    sg.addColorStop(0, "#2b3446"); sg.addColorStop(1, "#0a0d14");
+    sg.addColorStop(0, env.stand); sg.addColorStop(1, "#0a0d14");
     x.fillStyle = sg; x.fillRect(0, 0, CFG.W, CFG.H);
     // tier lines
     x.strokeStyle = "rgba(0,0,0,0.25)"; x.lineWidth = 2;
@@ -57,6 +66,8 @@ const Render = (() => {
       g.addColorStop(0, "rgba(255,255,240,0.34)"); g.addColorStop(1, "rgba(255,255,240,0)");
       x.fillStyle = g; x.fillRect(0, 0, CFG.W, CFG.H);
     }
+    // team-coloured wash over the stands so each stadium feels distinct
+    x.globalAlpha = 0.07; x.fillStyle = env.accent; x.fillRect(0, 0, CFG.W, CFG.H); x.globalAlpha = 1;
     // spectators watching from the stands (Street-Hoop style)
     spectators(x);
     // ad hoardings ringing the court
@@ -119,44 +130,54 @@ const Render = (() => {
   /* ---------- action world (camera) ---------- */
   function world(ctx, G) {
     if (!pitch) buildPitch();
-    const cam = G.cam;
+    const cam = G.cam, z = cam.z, TY = CFG.tilt;
     const sh = G.shake || 0;
     const ox = sh ? (Math.random() * 2 - 1) * sh : 0, oy = sh ? (Math.random() * 2 - 1) * sh : 0;
+    const CX = CFG.W / 2 + ox, CY = CFG.H / 2 + oy;
+    // ground plane squashed vertically -> 3/4 tilt
     ctx.save();
-    ctx.translate(CFG.W / 2 + ox, CFG.H / 2 + oy);
-    ctx.scale(cam.z, cam.z);
-    ctx.translate(-cam.x, -cam.y);
+    ctx.translate(CX, CY); ctx.scale(z, z * TY); ctx.translate(-cam.x, -cam.y);
     ctx.drawImage(pitch, 0, 0);
+    ctx.restore();
+    // world -> screen; entities drawn UPRIGHT on the tilted ground, scaled by depth
+    const proj = (wx, wy) => [CX + (wx - cam.x) * z, CY + (wy - cam.y) * z * TY];
+    const depthOf = (wy) => clamp(1 + (wy - cam.y) * 0.0009, 0.86, 1.16);
     const all = G.players.slice().sort((a, b) => a.y - b.y);
     for (const p of all) {
-      const controlled = p === G.controlled;
+      const s = proj(p.x, p.y);
       const tc = p.side === "home" ? KIDS.kit.shirt : G.away.kit.shirt;
-      sprite(ctx, p, controlled, tc);
+      drawPlayer(ctx, p, p === G.controlled, tc, s[0], s[1], z * depthOf(p.y), proj);
     }
-    drawBall(ctx, G.ball);
-    drawParticles(ctx, G);
-    ctx.restore();
+    const b = proj(G.ball.x, G.ball.y);
+    drawBall(ctx, G.ball, b[0], b[1], z);
+    for (const pt of G.particles) { const s = proj(pt.x, pt.y); ctx.globalAlpha = clamp(pt.life, 0, 1); ctx.fillStyle = pt.color; ctx.fillRect(s[0], s[1], pt.s, pt.s); }
+    ctx.globalAlpha = 1;
   }
 
-  // motion trail + "on fire" glow, drawn under any player
-  function drawAura(ctx, p) {
+  function drawPlayer(ctx, p, controlled, tc, sx, sy, sc, proj) {
+    drawAura(ctx, p, proj, sx, sy);
+    const set = Assets.sprite(p.artId);
+    if (set) billboard(ctx, p, controlled, tc, set, sx, sy, sc);
+    else procBillboard(ctx, p, controlled, tc, sx, sy, sc);
+  }
+
+  function chevron(ctx, x, y, color) {
+    ctx.fillStyle = color; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x - 7, y); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 9); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+
+  // motion trail + "on fire" glow (trail points are world coords -> projected)
+  function drawAura(ctx, p, proj, sx, sy) {
     if (p.trail && p.trail.length) {
-      for (const t of p.trail) { ctx.globalAlpha = clamp(t.a, 0, 1) * 0.5; ctx.fillStyle = p.fire > 0 ? "#ff9b2e" : "#bfe3ff"; ctx.beginPath(); ctx.arc(t.x, t.y, 5, 0, Math.PI * 2); ctx.fill(); }
+      for (const t of p.trail) { const s = proj(t.x, t.y); ctx.globalAlpha = clamp(t.a, 0, 1) * 0.5; ctx.fillStyle = p.fire > 0 ? "#ff9b2e" : "#bfe3ff"; ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, Math.PI * 2); ctx.fill(); }
       ctx.globalAlpha = 1;
     }
     if (p.fire > 0) {
       ctx.globalAlpha = 0.45 + 0.3 * Math.sin(performance.now() / 90);
-      const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 24);
+      const g = ctx.createRadialGradient(sx, sy, 2, sx, sy, 24);
       g.addColorStop(0, "rgba(255,160,40,0.85)"); g.addColorStop(1, "rgba(255,90,0,0)");
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, 24, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
     }
-  }
-
-  /* ---------- player sprite: PixelLab billboard, else consistent side-on fallback ---------- */
-  function sprite(ctx, p, controlled, teamColor) {
-    const set = Assets.sprite(p.artId);
-    if (set) return billboard(ctx, p, controlled, teamColor, set);
-    return procBillboard(ctx, p, controlled, teamColor);
   }
 
   // thick outlined limb (a coloured line with a dark edge)
@@ -168,9 +189,8 @@ const Render = (() => {
 
   // procedurally-drawn side-on footballer — same size/style as the PNG billboards,
   // so every player on the pitch looks consistent even without generated art
-  function procBillboard(ctx, p, controlled, teamColor) {
-    drawAura(ctx, p);
-    const H = Assets.heightWorld() * (p.size || 1);
+  function procBillboard(ctx, p, controlled, teamColor, sx, sy, sc) {
+    const H = Assets.heightWorld() * (p.size || 1) * sc;
     const w = H * 0.46;
     const running = p.speedNorm > 0.16;
     const stride = running ? Math.sin(p.animPhase) : Math.sin(performance.now() / 380) * 0.22;
@@ -179,11 +199,11 @@ const Render = (() => {
     const skin = p.skin || "#eebd95", hair = p.hair || "#3a2a1a";
     const shirt = p.kit.shirt, shorts = p.kit.shorts || "#222", boot = "#23252e";
 
-    ctx.fillStyle = "rgba(0,0,0,0.30)"; ctx.beginPath(); ctx.ellipse(p.x, p.y, w * 0.62, w * 0.24, 0, 0, Math.PI * 2); ctx.fill();
-    if (controlled) { ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.ellipse(p.x, p.y, w * 0.8, w * 0.3, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+    ctx.fillStyle = "rgba(0,0,0,0.30)"; ctx.beginPath(); ctx.ellipse(sx, sy, w * 0.62, w * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    if (controlled) { ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.ellipse(sx, sy, w * 0.8, w * 0.3, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
 
     ctx.save();
-    ctx.translate(p.x, p.y - hop);
+    ctx.translate(sx, sy - hop);
     ctx.scale(dir, 1);
 
     const legLen = H * 0.36, bodyH = H * 0.36, headR = H * 0.15;
@@ -211,63 +231,49 @@ const Render = (() => {
 
     ctx.restore();
 
-    if (controlled) {
-      const by = p.y - H - 8 - hop + Math.sin(performance.now() / 200) * 2;
-      ctx.fillStyle = teamColor; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(p.x - 7, by); ctx.lineTo(p.x + 7, by); ctx.lineTo(p.x, by + 9); ctx.closePath(); ctx.fill(); ctx.stroke();
-    }
+    if (controlled) chevron(ctx, sx, sy - H - 8 - hop + Math.sin(performance.now() / 200) * 2, teamColor);
   }
 
   /* ---------- billboard sprite (side-view PNG, used when art is loaded) ---------- */
-  function billboard(ctx, p, controlled, teamColor, set) {
-    drawAura(ctx, p);
+  function billboard(ctx, p, controlled, teamColor, set, sx, sy, sc) {
     const t = performance.now() / 1000 + (p.animPhase || 0) * 0.05;
     let anim = "idle";
     if (p.kickCd > 0.12 && set.has("kick")) anim = "kick";
     else if (p.speedNorm > 0.16 && set.has("run")) anim = "run";
     const fr = set.frame(anim, t);
     if (!fr) return;
-    const scale = (Assets.heightWorld() / fr.fh) * (p.size || 1);
-    const dw = fr.fw * scale, dh = fr.fh * scale;
-    const hop = p.celebrate > 0 ? Math.abs(Math.sin(p.celebrate * 12)) * 8 : 0;
+    const Hs = Assets.heightWorld() * (p.size || 1) * sc;
+    const drawScale = Hs / fr.fh, dw = fr.fw * drawScale, dh = fr.fh * drawScale;
+    const hop = p.celebrate > 0 ? Math.abs(Math.sin(p.celebrate * 12)) * Hs * 0.16 : 0;
 
     ctx.fillStyle = "rgba(0,0,0,0.30)";
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, dw * 0.34, dw * 0.15, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(sx, sy, dw * 0.34, dw * 0.15, 0, 0, Math.PI * 2); ctx.fill();
     if (controlled) {
       ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95;
-      ctx.beginPath(); ctx.ellipse(p.x, p.y, dw * 0.42, dw * 0.19, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.ellipse(sx, sy, dw * 0.42, dw * 0.19, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
     }
     const faceLeft = Math.cos(p.facing) < -0.05;
     ctx.save();
-    ctx.translate(p.x, p.y - hop);
+    ctx.translate(sx, sy - hop);
     if (faceLeft) ctx.scale(-1, 1);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(fr.img, fr.sx, fr.sy, fr.sw, fr.sh, -dw / 2, -dh + 3, dw, dh);
     ctx.imageSmoothingEnabled = true;
     ctx.restore();
-    if (controlled) {
-      const by = p.y - dh - 8 - hop + Math.sin(performance.now() / 200) * 2;
-      ctx.fillStyle = teamColor; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(p.x - 7, by); ctx.lineTo(p.x + 7, by); ctx.lineTo(p.x, by + 9); ctx.closePath(); ctx.fill(); ctx.stroke();
-    }
+    if (controlled) chevron(ctx, sx, sy - dh - 8 - hop + Math.sin(performance.now() / 200) * 2, teamColor);
   }
 
-  /* ---------- ball ---------- */
-  function drawBall(ctx, b) {
-    const sx = b.x, sy = b.y - b.z * 0.6, r = CFG.ballRadius * 1.25, sh = 1 + b.z / 90;
-    ctx.fillStyle = `rgba(0,0,0,${clamp(0.32 - b.z / 500, 0.05, 0.32)})`;
-    ctx.beginPath(); ctx.ellipse(b.x, b.y + 2, r * 1.05 * sh, r * 0.62 * sh, 0, 0, Math.PI * 2); ctx.fill();
-    oFill(ctx, () => { ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); }, "#fbfbf6", 2);
-    const g = ctx.createRadialGradient(sx - r * 0.35, sy - r * 0.4, r * 0.2, sx, sy, r);
+  /* ---------- ball (bx,by = projected ground position; z = camera zoom) ---------- */
+  function drawBall(ctx, b, bx, by, z) {
+    const r = CFG.ballRadius * 1.2 * z, h = b.z || 0, cy = by - h * z * 0.6, shS = 1 + h / 90;
+    ctx.fillStyle = `rgba(0,0,0,${clamp(0.32 - h / 500, 0.05, 0.32)})`;
+    ctx.beginPath(); ctx.ellipse(bx, by + 2, r * 1.05 * shS, r * 0.55 * shS, 0, 0, Math.PI * 2); ctx.fill();
+    oFill(ctx, () => { ctx.beginPath(); ctx.arc(bx, cy, r, 0, Math.PI * 2); }, "#fbfbf6", 2);
+    const g = ctx.createRadialGradient(bx - r * 0.35, cy - r * 0.4, r * 0.2, bx, cy, r);
     g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#cfd4de"); ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(sx, sy, r - 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx, cy, r - 1, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#1c2230";
-    for (let k = 0; k < 3; k++) { const a = b.spin + k * 2.094; ctx.beginPath(); ctx.arc(sx + Math.cos(a) * r * 0.45, sy + Math.sin(a) * r * 0.45, r * 0.22, 0, Math.PI * 2); ctx.fill(); }
-  }
-
-  function drawParticles(ctx, G) {
-    for (const pt of G.particles) { ctx.globalAlpha = clamp(pt.life, 0, 1); ctx.fillStyle = pt.color; ctx.fillRect(pt.x, pt.y, pt.s, pt.s); }
-    ctx.globalAlpha = 1;
+    for (let k = 0; k < 3; k++) { const a = (b.spin || 0) + k * 2.094; ctx.beginPath(); ctx.arc(bx + Math.cos(a) * r * 0.45, cy + Math.sin(a) * r * 0.45, r * 0.22, 0, Math.PI * 2); ctx.fill(); }
   }
 
   /* ---------- HUD ---------- */
@@ -334,7 +340,7 @@ const Render = (() => {
     if (bgBall.x < CFG.left + 20 || bgBall.x > CFG.right - 20) bgBall.vx *= -1;
     if (bgBall.y < CFG.top + 20 || bgBall.y > CFG.bottom - 20) bgBall.vy *= -1;
     bgBall.x = clamp(bgBall.x, CFG.left + 20, CFG.right - 20); bgBall.y = clamp(bgBall.y, CFG.top + 20, CFG.bottom - 20);
-    drawBall(ctx, { x: bgBall.x, y: bgBall.y, z: 0, spin: t * 3 });
+    drawBall(ctx, { z: 0, spin: t * 3 }, bgBall.x, bgBall.y, 1);
   }
 
   const KID_IDS = ["Vanja", "Fiči", "Bobo", "Marko", "Jan", "Cacko"];
