@@ -80,8 +80,10 @@ const Render = (() => {
   function world(ctx, G) {
     if (!pitch) buildPitch();
     const cam = G.cam;
+    const sh = G.shake || 0;
+    const ox = sh ? (Math.random() * 2 - 1) * sh : 0, oy = sh ? (Math.random() * 2 - 1) * sh : 0;
     ctx.save();
-    ctx.translate(CFG.W / 2, CFG.H / 2);
+    ctx.translate(CFG.W / 2 + ox, CFG.H / 2 + oy);
     ctx.scale(cam.z, cam.z);
     ctx.translate(-cam.x, -cam.y);
     ctx.drawImage(pitch, 0, 0);
@@ -96,10 +98,25 @@ const Render = (() => {
     ctx.restore();
   }
 
+  // motion trail + "on fire" glow, drawn under any player
+  function drawAura(ctx, p) {
+    if (p.trail && p.trail.length) {
+      for (const t of p.trail) { ctx.globalAlpha = clamp(t.a, 0, 1) * 0.5; ctx.fillStyle = p.fire > 0 ? "#ff9b2e" : "#bfe3ff"; ctx.beginPath(); ctx.arc(t.x, t.y, 5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    if (p.fire > 0) {
+      ctx.globalAlpha = 0.45 + 0.3 * Math.sin(performance.now() / 90);
+      const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 24);
+      g.addColorStop(0, "rgba(255,160,40,0.85)"); g.addColorStop(1, "rgba(255,90,0,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+
   /* ---------- player sprite (outlined, animated, 3/4 top-down) ---------- */
   function sprite(ctx, p, controlled, teamColor) {
     const set = Assets.sprite(p.artId);
     if (set) return billboard(ctx, p, controlled, teamColor, set);
+    drawAura(ctx, p);
     const vr = p.radius * 1.4;
     const kit = p.kit;
     const speed = p.speedNorm;
@@ -172,6 +189,7 @@ const Render = (() => {
 
   /* ---------- billboard sprite (side-view PNG, used when art is loaded) ---------- */
   function billboard(ctx, p, controlled, teamColor, set) {
+    drawAura(ctx, p);
     const t = performance.now() / 1000 + (p.animPhase || 0) * 0.05;
     let anim = "idle";
     if (p.kickCd > 0.12 && set.has("kick")) anim = "kick";
@@ -241,8 +259,17 @@ const Render = (() => {
       const frac = clamp((G.shootCharge - CFG.shootMin) / (CFG.shootMax - CFG.shootMin), 0, 1);
       ctx.fillStyle = `hsl(${lerp(60, 0, frac)},90%,55%)`; rrect(ctx, px + 1, py + 1, (pw - 2) * frac, ph - 2, 3); ctx.fill();
     }
+    // turbo / on-fire meter for the controlled kid
+    const cp = G.controlled;
+    if (cp) {
+      const bw = 116, bh = 9, bx = 18, by = CFG.H - 42;
+      ctx.fillStyle = "rgba(0,0,0,0.55)"; rrect(ctx, bx - 2, by - 2, bw + 4, bh + 4, 4); ctx.fill();
+      ctx.fillStyle = cp.fire > 0 ? "#ff7a18" : "#36d6ff"; rrect(ctx, bx, by, bw * clamp(cp.turbo, 0, 1), bh, 3); ctx.fill();
+      ctx.fillStyle = cp.fire > 0 ? "#ffd23a" : "#9fe3ff"; ctx.font = arc(8); ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(cp.fire > 0 ? "ON FIRE!" : "TURBO", bx, by - 5);
+    }
     ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = sans(12); ctx.textAlign = "center";
-    ctx.fillText("MOVE wasd/arrows   SHOOT space(hold)   PASS j   SPRINT shift   SWITCH c", CFG.W / 2, CFG.H - 12);
+    ctx.fillText("MOVE wasd   SPRINT shift   SHOOT space(hold)   JUKE k   PASS j   SLIDE space   SWITCH c", CFG.W / 2, CFG.H - 12);
     if (G.banner > 0) banner(ctx, G.bannerText);
   }
 
@@ -307,8 +334,19 @@ const Render = (() => {
     ctx.fillStyle = "#0e1320"; rrect(ctx, x - 3, y - 3, w + 6, h + 6, 6); ctx.fill();
     ctx.save(); rrect(ctx, x, y, w, h, 4); ctx.clip();
     const face = Assets.face(id);
-    if (face) { ctx.imageSmoothingEnabled = false; ctx.drawImage(face, x, y, w, h); ctx.imageSmoothingEnabled = true; }
-    else Portrait.draw(ctx, id, x, y, w, h);
+    if (face) {
+      // team-tinted backdrop behind the transparent bust
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, shade(accent, 0.0)); g.addColorStop(0.6, shade(accent, -0.5)); g.addColorStop(1, "#0b0e16");
+      ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 0.08; ctx.fillStyle = "#fff";
+      for (let i = -h; i < w; i += 14) { ctx.beginPath(); ctx.moveTo(x + i, y); ctx.lineTo(x + i + 6, y); ctx.lineTo(x + i + 6 + h, y + h); ctx.lineTo(x + i + h, y + h); ctx.closePath(); ctx.fill(); }
+      ctx.globalAlpha = 1;
+      // draw bust preserving its square aspect, anchored to the top
+      const s = w; ctx.imageSmoothingEnabled = false; ctx.drawImage(face, x, y, s, s); ctx.imageSmoothingEnabled = true;
+    } else {
+      Portrait.draw(ctx, id, x, y, w, h);
+    }
     ctx.restore();
     ctx.strokeStyle = accent; ctx.lineWidth = big ? 3 : 2; rrect(ctx, x, y, w, h, 4); ctx.stroke();
     ctx.restore();

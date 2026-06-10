@@ -13,6 +13,7 @@ const Input = (() => {
   let shootHeld = false;     // true while shoot is down (charges power)
   let shootReleasedAt = 0;   // power captured on release, read once
   let passQueued = false;
+  let jukeQueued = false;
   let switchQueued = false;
   let confirmQueued = false;
   let backQueued = false;
@@ -38,8 +39,9 @@ const Input = (() => {
     if (keys[e.key]) return; // ignore auto-repeat for edge actions
     keys[e.key] = true;
 
-    if (e.key === " " || e.key === "k" || e.key === "K") { shootHeld = true; e.preventDefault(); }
-    if (e.key === "j" || e.key === "J" || e.key === "l" || e.key === "L") passQueued = true;
+    if (e.key === " ") { shootHeld = true; e.preventDefault(); }
+    if (e.key === "j" || e.key === "J") passQueued = true;
+    if (e.key === "k" || e.key === "K" || e.key === "l" || e.key === "L") jukeQueued = true;
     if (e.key === "Tab" || e.key === "c" || e.key === "C") { switchQueued = true; e.preventDefault(); }
     if (e.key === "Enter") confirmQueued = true;
     if (e.key === "Escape" || e.key === "Backspace") backQueued = true;
@@ -48,7 +50,7 @@ const Input = (() => {
 
   window.addEventListener("keyup", (e) => {
     keys[e.key] = false;
-    if (e.key === " " || e.key === "k" || e.key === "K") {
+    if (e.key === " ") {
       if (shootHeld) shootReleasedAt = performance.now();
       shootHeld = false;
     }
@@ -130,6 +132,8 @@ const Input = (() => {
     // returns true once when shoot was released this frame
     consumeShootRelease() { if (shootReleasedAt) { shootReleasedAt = 0; return true; } return false; },
     consumePass() { const v = passQueued; passQueued = false; return v; },
+    consumeJuke() { const v = jukeQueued; jukeQueued = false; return v; },
+    queueJuke() { jukeQueued = true; },
     consumeSwitch() { const v = switchQueued; switchQueued = false; return v; },
     consumeConfirm() { const v = confirmQueued; confirmQueued = false; return v; },
     consumeBack() { const v = backQueued; backQueued = false; return v; },

@@ -27,7 +27,11 @@ const Assets = (() => {
     constructor() { this.anims = {}; this.ok = false; }
     add(name, img, frames, fps) {
       if (!img) return;
-      this.anims[name] = { img, frames: Math.max(1, frames), fps: fps || 8, fw: img.width / Math.max(1, frames), fh: img.height };
+      // frames are square, so infer the count from the strip's aspect ratio
+      // (robust to the API returning a different frame count than requested)
+      const fh = img.height;
+      const inferred = Math.max(1, Math.round(img.width / fh));
+      this.anims[name] = { img, frames: inferred, fps: fps || 8, fw: fh, fh };
       this.ok = true;
     }
     has(name) { return !!this.anims[name]; }

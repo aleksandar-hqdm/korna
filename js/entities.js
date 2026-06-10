@@ -23,6 +23,11 @@ class Player {
     this.celebrate = 0;           // celebration timer
     this.lunge = 0;               // keeper dive / tackle lunge anim
     this.lungeDir = 0;
+    // Street Hoop arcade layer
+    this.turbo = 1; this.jukeT = 0; this.jukeCd = 0;
+    this.slideT = 0; this.recoverT = 0;
+    this.heat = 0; this.fire = 0; this.justFired = false; this.trail = [];
+    this.user = false;            // true only for the kid the human controls
     const m = this.mult || {};
     this.spd = m.spd || 1; this.acc = m.acc || 1;
     this.pow = m.pow || 1; this.skl = m.skl || 1;
@@ -36,41 +41,89 @@ class Player {
   }
 
   update(dt) {
-    const base = CFG.maxSpeed * this.spd * (this.sprint ? CFG.sprintMul : 1);
-    const tvx = this.driveX * base, tvy = this.driveY * base;
-
-    if (this.driveX || this.driveY) {
-      const ax = tvx - this.vx, ay = tvy - this.vy;
-      const am = Math.hypot(ax, ay);
-      if (am > 0.01) {
-        const step = CFG.accel * this.acc * dt;
-        const s = Math.min(1, step / am);
-        this.vx += ax * s; this.vy += ay * s;
-      }
-    } else {
-      const f = Math.max(0, 1 - CFG.friction * dt);
-      this.vx *= f; this.vy *= f;
-    }
-
-    const m = Math.hypot(this.vx, this.vy);
-    const maxS = CFG.maxSpeed * this.spd * (this.sprint ? CFG.sprintMul : 1);
-    if (m > maxS) { this.vx = this.vx / m * maxS; this.vy = this.vy / m * maxS; }
-
-    this.x += this.vx * dt; this.y += this.vy * dt;
-
-    if (m > 10) this.facing = turnToward(this.facing, Math.atan2(this.vy, this.vx), CFG.turnRate * dt);
-    this.animPhase += (m / 26) * dt * 6 + dt * 0.6;
-    this.speedNorm = m / CFG.maxSpeed;
-
-    // keep inside the cage
-    const r = this.radius;
-    this.x = clamp(this.x, CFG.left + r, CFG.right - r);
-    this.y = clamp(this.y, CFG.top + r, CFG.bottom - r);
-
+    // tick timers
     if (this.stealCd > 0) this.stealCd -= dt;
     if (this.kickCd > 0) this.kickCd -= dt;
     if (this.celebrate > 0) this.celebrate -= dt;
     if (this.lunge > 0) this.lunge -= dt;
+    if (this.jukeCd > 0) this.jukeCd -= dt;
+    if (this.fire > 0) this.fire -= dt;
+    if (this.heat > 0) this.heat = Math.max(0, this.heat - CFG.heatDecay * dt);
+    if (this.heat >= 1 && this.fire <= 0) { this.fire = CFG.fireTime; this.heat = 0; this.justFired = true; }
+
+    // locked briefly after a slide
+    if (this.recoverT > 0) { this.recoverT -= dt; this.driveX = 0; this.driveY = 0; this.sprint = false; }
+
+    // mid-slide: ride the lunge, no steering
+    if (this.slideT > 0) {
+      this.slideT -= dt;
+      const f = Math.max(0, 1 - 3.2 * dt); this.vx *= f; this.vy *= f;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      if (this.slideT <= 0) this.recoverT = CFG.slideRecover;
+      return this._finish(dt);
+    }
+
+    // mid-juke: ride the burst
+    if (this.jukeT > 0) {
+      this.jukeT -= dt;
+      const f = Math.max(0, 1 - 1.8 * dt); this.vx *= f; this.vy *= f;
+      this.x += this.vx * dt; this.y += this.vy * dt;
+      if (Math.hypot(this.vx, this.vy) > 10) this.facing = turnToward(this.facing, Math.atan2(this.vy, this.vx), CFG.turnRate * 1.6 * dt);
+      return this._finish(dt);
+    }
+
+    const gated = this.user;      // only the human's kid spends turbo; AI sprints freely
+    const eff = this.sprint && (!gated || this.turbo > 0.02);
+    const fireMul = this.fire > 0 ? CFG.onFireBoost : 1;
+    const base = CFG.maxSpeed * this.spd * (eff ? CFG.sprintMul : 1) * fireMul;
+    const moving = this.driveX || this.driveY;
+    if (gated && eff && moving) this.turbo = Math.max(0, this.turbo - CFG.turboDrain * dt);
+    else this.turbo = Math.min(1, this.turbo + CFG.turboRecharge * dt);
+
+    if (moving) {
+      const tvx = this.driveX * base, tvy = this.driveY * base;
+      const ax = tvx - this.vx, ay = tvy - this.vy, am = Math.hypot(ax, ay);
+      if (am > 0.01) { const step = CFG.accel * this.acc * dt; const s = Math.min(1, step / am); this.vx += ax * s; this.vy += ay * s; }
+    } else {
+      const f = Math.max(0, 1 - CFG.friction * dt); this.vx *= f; this.vy *= f;
+    }
+    const m = Math.hypot(this.vx, this.vy);
+    if (m > base) { this.vx = this.vx / m * base; this.vy = this.vy / m * base; }
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    if (m > 10) this.facing = turnToward(this.facing, Math.atan2(this.vy, this.vx), CFG.turnRate * dt);
+    this._finish(dt);
+  }
+
+  _finish(dt) {
+    const m = Math.hypot(this.vx, this.vy);
+    this.animPhase += (m / 26) * dt * 6 + dt * 0.6;
+    this.speedNorm = m / CFG.maxSpeed;
+    const r = this.radius;
+    this.x = clamp(this.x, CFG.left + r, CFG.right - r);
+    this.y = clamp(this.y, CFG.top + r, CFG.bottom - r);
+    if (this.fire > 0 || this.jukeT > 0 || this.slideT > 0) {
+      this.trail.push({ x: this.x, y: this.y, a: 0.8 });
+      if (this.trail.length > 12) this.trail.shift();
+    }
+    for (const t of this.trail) t.a -= dt * 2.4;
+    while (this.trail.length && this.trail[0].a <= 0) this.trail.shift();
+  }
+
+  startJuke(dx, dy) {
+    if (this.jukeCd > 0 || this.turbo < CFG.jukeCost || this.slideT > 0 || this.recoverT > 0) return false;
+    let m = Math.hypot(dx, dy);
+    if (m < 0.1) { dx = Math.cos(this.facing); dy = Math.sin(this.facing); m = 1; }
+    this.vx = dx / m * CFG.jukeSpeed; this.vy = dy / m * CFG.jukeSpeed;
+    this.jukeT = CFG.jukeTime; this.jukeCd = CFG.jukeCooldown;
+    this.turbo -= CFG.jukeCost; this.heat = Math.min(1, this.heat + CFG.heatPerSkill);
+    return true;
+  }
+
+  startSlide() {
+    if (this.slideT > 0 || this.recoverT > 0) return false;
+    this.vx = Math.cos(this.facing) * CFG.slideSpeed; this.vy = Math.sin(this.facing) * CFG.slideSpeed;
+    this.slideT = CFG.slideTime; this.lunge = CFG.slideTime; this.lungeDir = 0;
+    return true;
   }
 
   // tip of the kicking foot, where the ball wants to sit while dribbling

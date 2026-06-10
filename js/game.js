@@ -23,6 +23,7 @@
     countdown: 0,
     celebrateTimer: 0,
     cam: { x: CFG.midX, y: CFG.midY, z: 1.78 },
+    shake: 0, freeze: 0,
     t: 0,
   };
 
@@ -124,6 +125,9 @@
 
   /* ----------------------------- input ----------------------------- */
   function handlePlayInput(dt) {
+    updateControlled(dt);                       // auto-switch to the right kid
+    for (const p of G.players) p.user = false;
+    if (G.controlled) G.controlled.user = true; // only the human's kid spends turbo
     const c = G.controlled;
     const mv = Input.movement();
     if (c) c.setDrive(mv.x, mv.y, Input.isSprint() || mv.mag > 0.92);
@@ -132,6 +136,9 @@
 
     const owns = c && G.ball.owner === c;
 
+    // skill-move juke (with the ball) — burst past a defender, costs turbo
+    if (Input.consumeJuke() && owns && c) { if (c.startJuke(mv.x, mv.y)) { puff(c.x, c.y); Sound.steal(); } }
+
     // shot charging
     if (owns && Input.isShootHeld()) {
       if (G.shootCharge <= 0) G.shootCharge = CFG.shootMin;
@@ -139,6 +146,7 @@
     }
     if (Input.consumeShootRelease()) {
       if (owns && G.shootCharge > 0) userShoot(c, G.shootCharge);
+      else if (c && !owns) { if (c.startSlide()) Sound.steal(); }   // slide tackle on defense
       G.shootCharge = 0;
     }
     if (!owns) G.shootCharge = 0;
@@ -151,12 +159,15 @@
     // gentle aim assist toward the target goal when in range and facing forward
     const gx = CFG.right, gy = clamp(G.ball.y, CFG.goalTop + 16, CFG.goalBot - 16);
     const toGoal = Math.atan2(gy - p.y, gx - p.x);
-    if (Math.cos(ang - toGoal) > 0.4 && Math.abs(gx - p.x) < CFG.pw * 0.6) {
-      ang = ang + angDelta(ang, toGoal) * 0.45;
-    }
-    const lift = power > CFG.shootMax * 0.8 ? rnd(60, 150) : rnd(0, 50);
-    G.ball.shoot(p, ang, power, lift);
+    const nearGoal = Math.abs(gx - p.x) < CFG.pw * 0.6;
+    if (Math.cos(ang - toGoal) > 0.4 && nearGoal) ang = ang + angDelta(ang, toGoal) * 0.45;
+    // a fully-charged strike near goal becomes a SPECIAL: extra power, lift, flair
+    const special = power > CFG.shootMax * 0.82 && Math.abs(gx - p.x) < CFG.pw * 0.45;
+    const pw = power * (p.fire > 0 ? 1.12 : 1) * (special ? 1.12 : 1);
+    const lift = special ? rnd(120, 210) : (power > CFG.shootMax * 0.8 ? rnd(60, 150) : rnd(0, 50));
+    G.ball.shoot(p, ang, pw, lift);
     Sound.kick();
+    if (special) { shake(7); flash(G.ball.x, G.ball.y); p.heat = Math.min(1, p.heat + CFG.heatPerSkill); Sound.post(); }
   }
 
   function userPass(p) {
@@ -249,20 +260,23 @@
         if (best.keeper) Sound.save(); else Sound.kick();
       }
     }
-    // steals / tackles (keepers are safe holders)
-    if (b.owner && !b.owner.keeper && (b.owner.holdT || 0) > 0.12) {
+    // steals / tackles (keepers are safe holders; a juking carrier is untouchable)
+    if (b.owner && !b.owner.keeper && (b.owner.holdT || 0) > 0.12 && b.owner.jukeT <= 0) {
       const owner = b.owner;
       for (const p of G.players) {
         if (p.side === owner.side || p.stealCd > 0) continue;
+        const sliding = p.slideT > 0;
+        const reach = (sliding ? CFG.slideReach : CFG.stealReach) + p.radius * 0.4;
         const d = dist(p.x, p.y, owner.x, owner.y);
-        if (d < CFG.stealReach + p.radius * 0.4) {
-          const rate = 2.1 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.7);
+        if (d < reach) {
+          let rate = 2.1 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.7);
+          if (sliding) rate *= 2.4;                 // a committed slide wins the ball
           if (Math.random() < rate * dt) {
-            owner.stealCd = CFG.stealCooldown; p.stealCd = 0.2;
-            if (Math.random() < 0.7) {
-              giveBall(p); p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1;
+            owner.stealCd = CFG.stealCooldown; p.stealCd = sliding ? 0.05 : 0.2;
+            p.heat = Math.min(1, p.heat + CFG.heatPerSkill);
+            if (sliding || Math.random() < 0.7) {
+              giveBall(p); if (!sliding) { p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1; }
             } else {
-              // knock it loose, away from the old carrier
               b.owner = null; b.lastTouch = p;
               const a = Math.atan2(owner.y - p.y, owner.x - p.x) + rnd(-0.5, 0.5);
               b.vx = Math.cos(a) * 220; b.vy = Math.sin(a) * 220;
@@ -311,9 +325,15 @@
     const gx = side === "home" ? CFG.right : CFG.left;
     const cols = side === "home" ? [KIDS.kit.shirt, "#fff", "#ffd23a"] : [G.away.kit.shirt, G.away.kit.shorts, "#fff"];
     spawnConfetti(gx, CFG.midY, cols, 90);
+    if (G.ball.lastTouch && G.ball.lastTouch.side === side) G.ball.lastTouch.heat = 1; // scorer catches fire
+    shake(12); G.freeze = 0.08;
     G.state = "GOAL";
     G.countdown = CFG.goalCelebration;
   }
+
+  function shake(mag) { G.shake = Math.max(G.shake, mag); }
+  function flash(x, y) { for (let i = 0; i < 18; i++) G.particles.push({ x, y, vx: rnd(-260, 260), vy: rnd(-260, 260), s: rnd(2, 5), life: rnd(0.2, 0.5), color: Math.random() < 0.5 ? "#fff" : "#ffe85a" }); }
+  function puff(x, y) { for (let i = 0; i < 8; i++) G.particles.push({ x, y, vx: rnd(-90, 90), vy: rnd(-50, 20), s: rnd(2, 4), life: rnd(0.3, 0.6), color: Math.random() < 0.5 ? "#e6e0d2" : "#c9c2b0" }); }
 
   function spawnConfetti(x, y, colors, n) {
     for (let i = 0; i < n; i++) {
@@ -335,6 +355,8 @@
   function update(dt) {
     G.t += dt;
     if (G.banner > 0) G.banner -= dt;
+    if (G.shake > 0) G.shake = Math.max(0, G.shake - 40 * dt);
+    for (const p of G.players) if (p.justFired) { p.justFired = false; if (p.side === "home" && G.state === "PLAY") { banner("ON FIRE!", "", 1.1); shake(5); } }
 
     switch (G.state) {
       case "TITLE":
@@ -474,6 +496,7 @@
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.05) dt = 0.05; // clamp big tab-switch gaps
+    if (G.freeze > 0) { G.freeze = Math.max(0, G.freeze - dt); render(); requestAnimationFrame(loop); return; } // hit-stop
     update(dt);
     render();
     requestAnimationFrame(loop);

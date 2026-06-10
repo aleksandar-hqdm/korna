@@ -39,6 +39,23 @@ const CFG = {
 
   matchSeconds: 120,
   goalCelebration: 2.6,
+
+  // --- Street Hoop arcade layer ---
+  turboDrain: 0.55,        // turbo used per second while sprinting
+  turboRecharge: 0.30,     // turbo regained per second when not
+  jukeCost: 0.30,          // turbo spent on a skill-move
+  jukeSpeed: 500,          // burst speed of a juke
+  jukeTime: 0.22,
+  jukeCooldown: 0.55,
+  slideSpeed: 440,         // slide-tackle lunge speed
+  slideTime: 0.30,
+  slideRecover: 0.45,      // stuck time after a slide
+  slideReach: 50,          // steal radius during a slide
+  heatPerGoal: 0.7,        // streak heat from a goal
+  heatPerSkill: 0.22,      // heat from a skill-move / tackle win
+  heatDecay: 0.10,         // heat lost per second
+  fireTime: 8,             // "ON FIRE" duration once heat fills
+  onFireBoost: 1.18,       // speed/power multiplier while on fire
 };
 
 // Derived play-field bounds
