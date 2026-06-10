@@ -7,10 +7,10 @@ const CFG = {
   W: 1024,
   H: 600,
 
-  // Cage layout (the play area sits inside the boards)
-  board: 30,         // thickness of the cage boards from the canvas edge
-  goalDepth: 30,     // how deep the goal recess is
-  goalMouth: 210,    // vertical size of the goal opening
+  // Court sits inside a stadium; this margin is the stands/crowd ring
+  board: 86,         // stadium ring thickness around the court
+  goalDepth: 22,     // how deep the goal recess is
+  goalMouth: 150,    // vertical size of the goal opening
   barHeight: 78,     // a ball higher than this sails over the bar (no goal)
 
   // Ball physics (per second)
@@ -20,22 +20,22 @@ const CFG = {
   gravity: 1500,             // downward accel on ball height (z)
   ballRadius: 9,
 
-  // Player movement (per second)
-  accel: 2100,
-  maxSpeed: 250,
-  sprintMul: 1.42,
-  friction: 11,              // how quickly a player slides to a stop
-  turnRate: 13,              // how fast facing rotates toward velocity
+  // Player movement (per second) — tuned slower so the zoomed view reads smooth
+  accel: 1500,
+  maxSpeed: 178,
+  sprintMul: 1.45,
+  friction: 10,              // how quickly a player slides to a stop
+  turnRate: 12,              // how fast facing rotates toward velocity
 
   // Interaction
   controlRadius: 30,         // how close to "own" the loose ball
   dribbleDist: 24,           // how far ahead the ball sits while dribbling
   stealReach: 30,
   stealCooldown: 0.55,
-  shootMin: 380,
-  shootMax: 1040,
-  shootChargeRate: 900,      // power per second while holding shoot
-  passPower: 720,
+  shootMin: 340,
+  shootMax: 820,
+  shootChargeRate: 720,      // power per second while holding shoot
+  passPower: 560,
 
   matchSeconds: 120,
   goalCelebration: 2.6,
@@ -44,13 +44,13 @@ const CFG = {
   turboDrain: 0.55,        // turbo used per second while sprinting
   turboRecharge: 0.30,     // turbo regained per second when not
   jukeCost: 0.30,          // turbo spent on a skill-move
-  jukeSpeed: 500,          // burst speed of a juke
+  jukeSpeed: 360,          // burst speed of a juke
   jukeTime: 0.22,
   jukeCooldown: 0.55,
-  slideSpeed: 440,         // slide-tackle lunge speed
-  slideTime: 0.30,
+  slideSpeed: 330,         // slide-tackle lunge speed
+  slideTime: 0.32,
   slideRecover: 0.45,      // stuck time after a slide
-  slideReach: 50,          // steal radius during a slide
+  slideReach: 46,          // steal radius during a slide
   heatPerGoal: 0.7,        // streak heat from a goal
   heatPerSkill: 0.22,      // heat from a skill-move / tackle win
   heatDecay: 0.10,         // heat lost per second

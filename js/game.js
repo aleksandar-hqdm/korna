@@ -22,7 +22,7 @@
     banner: 0, bannerText: "", bannerSub: "",
     countdown: 0,
     celebrateTimer: 0,
-    cam: { x: CFG.midX, y: CFG.midY, z: 1.78 },
+    cam: { x: CFG.midX, y: CFG.midY, z: 2.4 },
     shake: 0, freeze: 0,
     t: 0,
   };
@@ -39,11 +39,11 @@
   }
   function updateCamera(dt) {
     const { hw, hh } = camBounds();
-    // follow the ball, leading slightly toward the controlled kid for "action" feel
+    // track the ball (lead a touch toward the controlled kid), tight but smooth
     let tx = G.ball.x, ty = G.ball.y;
-    if (G.controlled) { tx = lerp(G.ball.x, G.controlled.x, 0.25); ty = lerp(G.ball.y, G.controlled.y, 0.25); }
+    if (G.controlled) { tx = lerp(G.ball.x, G.controlled.x, 0.3); ty = lerp(G.ball.y, G.controlled.y, 0.3); }
     tx = clamp(tx, hw, CFG.W - hw); ty = clamp(ty, hh, CFG.H - hh);
-    const k = Math.min(1, 5 * dt);
+    const k = Math.min(1, 8 * dt);
     G.cam.x += (tx - G.cam.x) * k; G.cam.y += (ty - G.cam.y) * k;
   }
 
@@ -130,28 +130,54 @@
     if (G.controlled) G.controlled.user = true; // only the human's kid spends turbo
     const c = G.controlled;
     const mv = Input.movement();
-    if (c) c.setDrive(mv.x, mv.y, Input.isSprint() || mv.mag > 0.92);
-
-    if (Input.consumeSwitch()) manualSwitch();
+    if (c) c.setDrive(mv.x, mv.y, Input.isSprint());     // E = sprint
 
     const owns = c && G.ball.owner === c;
 
-    // skill-move juke (with the ball) — burst past a defender, costs turbo
-    if (Input.consumeJuke() && owns && c) { if (c.startJuke(mv.x, mv.y)) { puff(c.x, c.y); Sound.steal(); } }
+    if (Input.consumeSwitch() && !owns) manualSwitch();  // Space = change player (defense)
 
-    // shot charging
+    // D — shoot (hold to charge), only with the ball
     if (owns && Input.isShootHeld()) {
       if (G.shootCharge <= 0) G.shootCharge = CFG.shootMin;
       G.shootCharge = clamp(G.shootCharge + CFG.shootChargeRate * dt, CFG.shootMin, CFG.shootMax);
     }
     if (Input.consumeShootRelease()) {
       if (owns && G.shootCharge > 0) userShoot(c, G.shootCharge);
-      else if (c && !owns) { if (c.startSlide()) Sound.steal(); }   // slide tackle on defense
       G.shootCharge = 0;
     }
     if (!owns) G.shootCharge = 0;
 
-    if (Input.consumePass() && owns) userPass(c);
+    // S — pass (with ball) / call a teammate to press (without)
+    if (Input.consumePassFollow()) { if (owns) userPass(c); else if (c) callFollow(); }
+
+    // A — lob (with ball) / slide tackle (without)
+    if (Input.consumeLobSlide()) { if (owns) userLob(c); else if (c) { if (c.startSlide()) Sound.steal(); } }
+  }
+
+  function userLob(p) {
+    const gx = CFG.right, toGoal = Math.abs(gx - p.x);
+    if (toGoal < CFG.pw * 0.4) {
+      // chip toward goal
+      let ang = p.facing;
+      const gy = clamp(G.ball.y, CFG.goalTop + 14, CFG.goalBot - 14), tg = Math.atan2(gy - p.y, gx - p.x);
+      if (Math.cos(ang - tg) > 0.3) ang = ang + angDelta(ang, tg) * 0.5;
+      G.ball.shoot(p, ang, CFG.shootMax * 0.6, 280);
+    } else {
+      // lofted pass to the most advanced teammate
+      const out = G.home.filter((m) => m !== p && !m.keeper);
+      let best = null, bs = -1e9;
+      for (const m of out) { const d = dist(p.x, p.y, m.x, m.y); if (d < 60 || d > 520) continue; const sc = (m.x - p.x) - d * 0.2; if (sc > bs) { bs = sc; best = m; } }
+      if (best) { const a = Math.atan2(best.y - p.y, best.x - p.x); G.ball.shoot(p, a, clamp(dist(p.x, p.y, best.x, best.y) * 2.0, 280, 600), 260); }
+      else G.ball.shoot(p, p.facing, 380, 260);
+    }
+    Sound.pass();
+  }
+
+  function callFollow() {
+    // send the nearest other kid to press the ball (second defender)
+    let best = null, bd = Infinity;
+    for (const p of G.home) { if (p.keeper || p === G.controlled) continue; const d = dist2(p.x, p.y, G.ball.x, G.ball.y); if (d < bd) { bd = d; best = p; } }
+    if (best) { best.pressT = 1.7; Sound.ui(); }
   }
 
   function userShoot(p, power) {

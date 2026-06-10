@@ -28,52 +28,76 @@ const Render = (() => {
   }
   function setLS(ctx, v) { try { ctx.letterSpacing = v; } catch (e) {} }
 
-  /* ---------- static pitch ---------- */
+  /* ---------- static pitch = stadium scene + court ---------- */
   function buildPitch() {
     const c = document.createElement("canvas"); c.width = CFG.W; c.height = CFG.H;
     const x = c.getContext("2d");
-    x.fillStyle = "#10141c"; x.fillRect(0, 0, CFG.W, CFG.H);
-    const g = x.createLinearGradient(0, CFG.top, 0, CFG.bottom);
-    g.addColorStop(0, "#2f8a4f"); g.addColorStop(1, "#236b3d");
-    x.fillStyle = g; x.fillRect(CFG.left, CFG.top, CFG.pw, CFG.ph);
-    for (let i = 0; i < 14; i++) { x.fillStyle = i % 2 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.035)"; const sw = CFG.pw / 14; x.fillRect(CFG.left + i * sw, CFG.top, sw, CFG.ph); }
-    x.globalAlpha = 0.05; for (let i = 0; i < 1100; i++) { x.fillStyle = Math.random() < 0.5 ? "#000" : "#fff"; x.fillRect(CFG.left + Math.random() * CFG.pw, CFG.top + Math.random() * CFG.ph, 1.4, 1.4); } x.globalAlpha = 1;
+    const L = CFG.left, R = CFG.right, T = CFG.top, B = CFG.bottom, pw = CFG.pw, ph = CFG.ph;
 
-    x.strokeStyle = "rgba(255,255,255,0.8)"; x.lineWidth = 3;
-    x.strokeRect(CFG.left + 6, CFG.top + 6, CFG.pw - 12, CFG.ph - 12);
-    x.beginPath(); x.moveTo(CFG.midX, CFG.top + 6); x.lineTo(CFG.midX, CFG.bottom - 6); x.stroke();
-    x.beginPath(); x.arc(CFG.midX, CFG.midY, 64, 0, Math.PI * 2); x.stroke();
+    // stands (lighter toward the court)
+    x.fillStyle = "#0b0e15"; x.fillRect(0, 0, CFG.W, CFG.H);
+    const sg = x.createRadialGradient(CFG.midX, CFG.midY, ph * 0.5, CFG.midX, CFG.midY, CFG.W * 0.72);
+    sg.addColorStop(0, "#2b3446"); sg.addColorStop(1, "#0a0d14");
+    x.fillStyle = sg; x.fillRect(0, 0, CFG.W, CFG.H);
+    // tier lines
+    x.strokeStyle = "rgba(0,0,0,0.25)"; x.lineWidth = 2;
+    for (let r = 18; r < 80; r += 16) { x.strokeRect(L - r, T - r, pw + 2 * r, ph + 2 * r); }
+    // crowd specks
+    const cc = ["#d94f4f", "#e8c84a", "#4f8fd9", "#5fc06a", "#e0e0e0", "#c86bd0", "#e9913f", "#7bd0c0"];
+    for (let i = 0; i < 2600; i++) {
+      const px = Math.random() * CFG.W, py = Math.random() * CFG.H;
+      if (px > L - 6 && px < R + 6 && py > T - 6 && py < B + 6) continue; // keep court area clean
+      x.globalAlpha = 0.45 + Math.random() * 0.45; x.fillStyle = cc[(Math.random() * cc.length) | 0];
+      x.fillRect(px, py, 2, 2);
+    }
+    x.globalAlpha = 1;
+    // floodlight glows in the corners
+    for (const fl of [[44, 40], [CFG.W - 44, 40], [44, CFG.H - 40], [CFG.W - 44, CFG.H - 40]]) {
+      const g = x.createRadialGradient(fl[0], fl[1], 2, fl[0], fl[1], 170);
+      g.addColorStop(0, "rgba(255,255,240,0.34)"); g.addColorStop(1, "rgba(255,255,240,0)");
+      x.fillStyle = g; x.fillRect(0, 0, CFG.W, CFG.H);
+    }
+    // ad hoardings ringing the court
+    x.fillStyle = "#10141d"; x.fillRect(L - 15, T - 15, pw + 30, ph + 30);
+    const ads = ["#e23b4d", "#ffd23a", "#1a57c8", "#16a64a", "#ff7a18", "#ffffff"];
+    for (let i = 0; i * 56 < pw; i++) { x.fillStyle = ads[i % ads.length]; x.fillRect(L + i * 56, T - 14, 52, 7); x.fillStyle = ads[(i + 3) % ads.length]; x.fillRect(L + i * 56, B + 7, 52, 7); }
+    for (let i = 0; i * 56 < ph; i++) { x.fillStyle = ads[(i + 1) % ads.length]; x.fillRect(L - 14, T + i * 56, 7, 52); x.fillStyle = ads[(i + 4) % ads.length]; x.fillRect(R + 7, T + i * 56, 7, 52); }
+
+    // ---- court ----
+    const g = x.createLinearGradient(0, T, 0, B); g.addColorStop(0, "#2f8a4f"); g.addColorStop(1, "#236b3d");
+    x.fillStyle = g; x.fillRect(L, T, pw, ph);
+    for (let i = 0; i < 12; i++) { x.fillStyle = i % 2 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.04)"; const sw = pw / 12; x.fillRect(L + i * sw, T, sw, ph); }
+    x.globalAlpha = 0.05; for (let i = 0; i < 800; i++) { x.fillStyle = Math.random() < 0.5 ? "#000" : "#fff"; x.fillRect(L + Math.random() * pw, T + Math.random() * ph, 1.4, 1.4); } x.globalAlpha = 1;
+
+    x.strokeStyle = "rgba(255,255,255,0.82)"; x.lineWidth = 3;
+    x.strokeRect(L + 5, T + 5, pw - 10, ph - 10);
+    x.beginPath(); x.moveTo(CFG.midX, T + 5); x.lineTo(CFG.midX, B - 5); x.stroke();
+    x.beginPath(); x.arc(CFG.midX, CFG.midY, 54, 0, Math.PI * 2); x.stroke();
     x.fillStyle = "rgba(255,255,255,0.85)"; x.beginPath(); x.arc(CFG.midX, CFG.midY, 4, 0, Math.PI * 2); x.fill();
-    const boxW = 96, boxH = CFG.goalMouth + 84;
-    [CFG.left, CFG.right].forEach((gx, side) => {
+    const boxW = 80, boxH = CFG.goalMouth + 64;
+    [L, R].forEach((gx, side) => {
       const dir = side === 0 ? 1 : -1;
-      x.strokeStyle = "rgba(255,255,255,0.8)";
-      x.strokeRect(side === 0 ? CFG.left + 6 : CFG.right - 6 - boxW, CFG.midY - boxH / 2, boxW, boxH);
-      const sbW = 46, sbH = CFG.goalMouth + 12;
-      x.strokeRect(side === 0 ? CFG.left + 6 : CFG.right - 6 - sbW, CFG.midY - sbH / 2, sbW, sbH);
-      x.fillStyle = "rgba(255,255,255,0.85)"; x.beginPath(); x.arc(gx + dir * 72, CFG.midY, 3, 0, Math.PI * 2); x.fill();
+      x.strokeStyle = "rgba(255,255,255,0.82)";
+      x.strokeRect(side === 0 ? L + 5 : R - 5 - boxW, CFG.midY - boxH / 2, boxW, boxH);
+      const sbW = 38, sbH = CFG.goalMouth + 8;
+      x.strokeRect(side === 0 ? L + 5 : R - 5 - sbW, CFG.midY - sbH / 2, sbW, sbH);
+      x.fillStyle = "rgba(255,255,255,0.85)"; x.beginPath(); x.arc(gx + dir * 60, CFG.midY, 3, 0, Math.PI * 2); x.fill();
       drawGoal(x, gx, dir);
     });
-    drawFence(x);
-    const vg = x.createRadialGradient(CFG.midX, CFG.midY, CFG.ph * 0.4, CFG.midX, CFG.midY, CFG.pw * 0.62);
-    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.3)");
-    x.fillStyle = vg; x.fillRect(CFG.left, CFG.top, CFG.pw, CFG.ph);
+    // bright rail around the court
+    x.strokeStyle = "rgba(255,255,255,0.16)"; x.lineWidth = 4; x.strokeRect(L - 3, T - 3, pw + 6, ph + 6);
+    const vg = x.createRadialGradient(CFG.midX, CFG.midY, ph * 0.35, CFG.midX, CFG.midY, CFG.W * 0.62);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.34)");
+    x.fillStyle = vg; x.fillRect(0, 0, CFG.W, CFG.H);
     pitch = c;
   }
   function drawGoal(x, gx, dir) {
-    const depth = CFG.board - 6, x0 = dir === 1 ? gx - depth : gx, w = depth, y0 = CFG.goalTop, h = CFG.goalMouth;
-    x.fillStyle = "rgba(255,255,255,0.10)"; x.fillRect(x0, y0, w, h);
-    x.strokeStyle = "rgba(255,255,255,0.45)"; x.lineWidth = 1;
-    for (let i = 0; i <= w; i += 6) { x.beginPath(); x.moveTo(x0 + i, y0); x.lineTo(x0 + i, y0 + h); x.stroke(); }
-    for (let j = 0; j <= h; j += 6) { x.beginPath(); x.moveTo(x0, y0 + j); x.lineTo(x0 + w, y0 + j); x.stroke(); }
-    x.strokeStyle = "#f4f7ff"; x.lineWidth = 5; x.beginPath(); x.moveTo(gx, y0 - 4); x.lineTo(gx, y0 + h + 4); x.stroke();
-  }
-  function drawFence(x) {
-    x.save(); x.beginPath(); x.rect(0, 0, CFG.W, CFG.H); x.rect(CFG.left, CFG.top, CFG.pw, CFG.ph); x.clip("evenodd");
-    x.strokeStyle = "rgba(150,165,185,0.20)"; x.lineWidth = 1; const s = 11;
-    for (let i = -CFG.H; i < CFG.W; i += s) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + CFG.H, CFG.H); x.stroke(); x.beginPath(); x.moveTo(i, CFG.H); x.lineTo(i + CFG.H, 0); x.stroke(); }
-    x.restore();
-    x.strokeStyle = "rgba(255,255,255,0.06)"; x.lineWidth = 2; x.strokeRect(CFG.left - 2, CFG.top - 2, CFG.pw + 4, CFG.ph + 4);
+    const depth = CFG.goalDepth, x0 = dir === 1 ? gx - depth : gx, w = depth, y0 = CFG.goalTop, h = CFG.goalMouth;
+    x.fillStyle = "rgba(255,255,255,0.12)"; x.fillRect(x0, y0, w, h);
+    x.strokeStyle = "rgba(255,255,255,0.5)"; x.lineWidth = 1;
+    for (let i = 0; i <= w; i += 5) { x.beginPath(); x.moveTo(x0 + i, y0); x.lineTo(x0 + i, y0 + h); x.stroke(); }
+    for (let j = 0; j <= h; j += 5) { x.beginPath(); x.moveTo(x0, y0 + j); x.lineTo(x0 + w, y0 + j); x.stroke(); }
+    x.strokeStyle = "#f4f7ff"; x.lineWidth = 4; x.beginPath(); x.moveTo(gx, y0 - 4); x.lineTo(gx, y0 + h + 4); x.stroke();
   }
 
   /* ---------- action world (camera) ---------- */
@@ -269,7 +293,7 @@ const Render = (() => {
       ctx.fillText(cp.fire > 0 ? "ON FIRE!" : "TURBO", bx, by - 5);
     }
     ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = sans(12); ctx.textAlign = "center";
-    ctx.fillText("MOVE wasd   SPRINT shift   SHOOT space(hold)   JUKE k   PASS j   SLIDE space   SWITCH c", CFG.W / 2, CFG.H - 12);
+    ctx.fillText("MOVE arrows   SPRINT e   SHOOT d (hold)   PASS s   LOB/SLIDE a   SWITCH space", CFG.W / 2, CFG.H - 12);
     if (G.banner > 0) banner(ctx, G.bannerText);
   }
 

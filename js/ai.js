@@ -9,10 +9,10 @@ const AI = (() => {
   const tgtGoalX = (s) => (s === "home" ? CFG.right : CFG.left);
   const atkSign = (s) => (s === "home" ? 1 : -1);
 
-  function driveTo(p, tx, ty, sprint, stopDist = 2) {
+  function driveTo(p, tx, ty, sprint, stopDist = 7) {
     const dx = tx - p.x, dy = ty - p.y, m = Math.hypot(dx, dy);
     if (m < stopDist) { p.setDrive(0, 0, false); return; }
-    p.setDrive(dx / m, dy / m, !!sprint && m > 70);
+    p.setDrive(dx / m, dy / m, !!sprint && m > 130);   // only sprint when there's real ground to cover
   }
 
   function rankToward(p, allies, tx, ty) {
@@ -148,8 +148,8 @@ const AI = (() => {
     const rank = rankToward(p, w.allies, carrierP.x, carrierP.y);
     const sign = atkSign(p.side);
 
-    if (rank === 0 || (rank === 1 && w.diff >= 3)) {
-      // press: aim a touch goalside of the carrier to cut the lane
+    if (rank === 0) {
+      // only the closest defender presses (keeps the pack from swarming)
       const gsx = carrierP.x - sign * 12;
       driveTo(p, gsx, carrierP.y, true);
     } else {
@@ -179,6 +179,7 @@ const AI = (() => {
 
   function steer(p, w) {
     if (p.keeper) { keeper(p, w); return; }
+    if (p.pressT > 0) { driveTo(p, w.ball.x, w.ball.y, true); return; }  // "follow" call: chase the ball
     const owner = w.ball.owner;
     if (owner === p) carrier(p, w);
     else if (owner && owner.side === p.side) supportAttack(p, w);

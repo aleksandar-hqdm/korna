@@ -12,18 +12,17 @@ const Input = (() => {
   // edge-triggered action flags consumed by the game each frame
   let shootHeld = false;     // true while shoot is down (charges power)
   let shootReleasedAt = 0;   // power captured on release, read once
-  let passQueued = false;
-  let jukeQueued = false;
+  let passFollowQueued = false;
+  let lobSlideQueued = false;
   let switchQueued = false;
   let confirmQueued = false;
   let backQueued = false;
   // pointer for menu navigation
   const pointer = { x: 0, y: 0, clicked: false };
 
+  // movement is Arrow keys only (A/S/D/E are action buttons)
   const MOVE_KEYS = {
     ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
-    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0],
-    W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
   };
 
   function keyMoveVector() {
@@ -39,18 +38,19 @@ const Input = (() => {
     if (keys[e.key]) return; // ignore auto-repeat for edge actions
     keys[e.key] = true;
 
-    if (e.key === " ") { shootHeld = true; e.preventDefault(); }
-    if (e.key === "j" || e.key === "J") passQueued = true;
-    if (e.key === "k" || e.key === "K" || e.key === "l" || e.key === "L") jukeQueued = true;
-    if (e.key === "Tab" || e.key === "c" || e.key === "C") { switchQueued = true; e.preventDefault(); }
-    if (e.key === "Enter") confirmQueued = true;
-    if (e.key === "Escape" || e.key === "Backspace") backQueued = true;
-    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
+    const k = e.key;
+    if (k === "d" || k === "D") shootHeld = true;                  // Shoot (hold to charge)
+    if (k === "s" || k === "S") passFollowQueued = true;            // Pass / follow
+    if (k === "a" || k === "A") lobSlideQueued = true;              // Lob / slide
+    if (k === " ") { switchQueued = true; e.preventDefault(); }     // Change player
+    if (k === "Enter") confirmQueued = true;
+    if (k === "Escape" || k === "Backspace") backQueued = true;
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(k)) e.preventDefault();
   });
 
   window.addEventListener("keyup", (e) => {
     keys[e.key] = false;
-    if (e.key === " ") {
+    if (e.key === "d" || e.key === "D") {
       if (shootHeld) shootReleasedAt = performance.now();
       shootHeld = false;
     }
@@ -111,7 +111,7 @@ const Input = (() => {
     sh.addEventListener("pointerdown", (e) => { e.preventDefault(); Sound.unlock(); shootHeld = true; });
     sh.addEventListener("pointerup", (e) => { e.preventDefault(); if (shootHeld) shootReleasedAt = performance.now(); shootHeld = false; });
     const ps = document.getElementById("btnPass");
-    ps.addEventListener("pointerdown", (e) => { e.preventDefault(); Sound.unlock(); passQueued = true; });
+    ps.addEventListener("pointerdown", (e) => { e.preventDefault(); Sound.unlock(); passFollowQueued = true; });
     // tapping the screen also confirms menus on touch
     canvas().addEventListener("pointerdown", () => { confirmQueued = true; });
   }
@@ -128,12 +128,11 @@ const Input = (() => {
       return { x, y, mag: Math.min(1, m) };
     },
     isShootHeld() { return shootHeld; },
-    isSprint() { return !!(keys.Shift || keys.Shift === true); },
+    isSprint() { return !!(keys.e || keys.E); },
     // returns true once when shoot was released this frame
     consumeShootRelease() { if (shootReleasedAt) { shootReleasedAt = 0; return true; } return false; },
-    consumePass() { const v = passQueued; passQueued = false; return v; },
-    consumeJuke() { const v = jukeQueued; jukeQueued = false; return v; },
-    queueJuke() { jukeQueued = true; },
+    consumePassFollow() { const v = passFollowQueued; passFollowQueued = false; return v; },
+    consumeLobSlide() { const v = lobSlideQueued; lobSlideQueued = false; return v; },
     consumeSwitch() { const v = switchQueued; switchQueued = false; return v; },
     consumeConfirm() { const v = confirmQueued; confirmQueued = false; return v; },
     consumeBack() { const v = backQueued; backQueued = false; return v; },
