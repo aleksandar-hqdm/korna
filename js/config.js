@@ -1,0 +1,85 @@
+/* =========================================================================
+   KORNA — global config + math utilities
+   ========================================================================= */
+"use strict";
+
+const CFG = {
+  W: 1024,
+  H: 600,
+
+  // Cage layout (the play area sits inside the boards)
+  board: 30,         // thickness of the cage boards from the canvas edge
+  goalDepth: 30,     // how deep the goal recess is
+  goalMouth: 210,    // vertical size of the goal opening
+  barHeight: 78,     // a ball higher than this sails over the bar (no goal)
+
+  // Ball physics (per second)
+  ballGroundFriction: 1.9,   // velocity decay while rolling
+  ballAirFriction: 0.18,
+  ballBounce: 0.66,          // energy kept on a wall/ground bounce
+  gravity: 1500,             // downward accel on ball height (z)
+  ballRadius: 9,
+
+  // Player movement (per second)
+  accel: 2100,
+  maxSpeed: 250,
+  sprintMul: 1.42,
+  friction: 11,              // how quickly a player slides to a stop
+  turnRate: 13,              // how fast facing rotates toward velocity
+
+  // Interaction
+  controlRadius: 30,         // how close to "own" the loose ball
+  dribbleDist: 24,           // how far ahead the ball sits while dribbling
+  stealReach: 30,
+  stealCooldown: 0.55,
+  shootMin: 380,
+  shootMax: 1040,
+  shootChargeRate: 900,      // power per second while holding shoot
+  passPower: 720,
+
+  matchSeconds: 120,
+  goalCelebration: 2.6,
+};
+
+// Derived play-field bounds
+CFG.left = CFG.board;
+CFG.right = CFG.W - CFG.board;
+CFG.top = CFG.board;
+CFG.bottom = CFG.H - CFG.board;
+CFG.midX = (CFG.left + CFG.right) / 2;
+CFG.midY = (CFG.top + CFG.bottom) / 2;
+CFG.goalTop = CFG.midY - CFG.goalMouth / 2;
+CFG.goalBot = CFG.midY + CFG.goalMouth / 2;
+CFG.pw = CFG.right - CFG.left;   // play width
+CFG.ph = CFG.bottom - CFG.top;   // play height
+
+/* ---------------- math helpers ---------------- */
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
+const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+const rnd = (a = 1, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const rndi = (a, b) => Math.floor(rnd(a, b + 1));
+const chance = (p) => Math.random() < p;
+const sign = (v) => (v < 0 ? -1 : 1);
+
+// shortest signed angular difference b - a, wrapped to [-PI, PI]
+function angDelta(a, b) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+// rotate angle a toward b by at most `rate`
+function turnToward(a, b, rate) {
+  const d = angDelta(a, b);
+  if (Math.abs(d) <= rate) return b;
+  return a + sign(d) * rate;
+}
+
+// world position from a 0..1 formation fraction
+function fx(f) { return CFG.left + f * CFG.pw; }
+function fy(f) { return CFG.top + f * CFG.ph; }
+
+// is point inside the goal-mouth vertical band
+function inMouth(y) { return y > CFG.goalTop && y < CFG.goalBot; }

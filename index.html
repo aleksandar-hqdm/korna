@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0b0e16" />
+<title>KORNA — Street Cage Football</title>
+<meta name="description" content="KORNA: a retro pixel-art street football arcade game. Captain Vanja and the kids take on the legends." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" width="1024" height="600"></canvas>
+
+    <!-- On-screen touch controls (shown only on touch devices) -->
+    <div id="touch" class="touch hidden">
+      <div id="stick" class="stick"><div id="nub" class="nub"></div></div>
+      <div class="btns">
+        <button id="btnShoot" class="tbtn shoot">SHOOT</button>
+        <button id="btnPass" class="tbtn pass">PASS</button>
+      </div>
+    </div>
+
+    <div id="rotate" class="rotate hidden">
+      <div>↻ Rotate your device<br/><small>KORNA plays best in landscape</small></div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/teams.js"></script>
+  <script src="js/portraits.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
