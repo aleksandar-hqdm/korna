@@ -24,6 +24,7 @@
     celebrateTimer: 0,
     cam: { x: CFG.midX, y: CFG.midY, z: 2.45 },
     shake: 0, freeze: 0,
+    cardFlash: 0, cardColor: "#ffd23a", subDone: false,
     t: 0,
   };
 
@@ -59,6 +60,7 @@
     G.score.home = 0; G.score.away = 0;
     G.clock = CFG.matchSeconds;
     G.particles.length = 0;
+    G.subDone = false; G.cardFlash = 0;
     Sound.whistle();
     kickoff("home");
   }
@@ -250,11 +252,88 @@
       keeperClear(dt);
       G.ball.update(dt);
     } else {
-      const scored = G.ball.update(dt);
-      if (scored) onGoal(scored);
+      const ev = G.ball.update(dt);
+      if (ev) handleBallEvent(ev);
     }
 
     updateParticles(dt);
+  }
+
+  /* --------------------- set pieces / restarts --------------------- */
+  function nearestOfSide(side, x, y, outfieldOnly) {
+    const list = side === "home" ? G.home : G.awayPlayers;
+    let best = null, bd = Infinity;
+    for (const p of list) { if (outfieldOnly && p.keeper) continue; const d = dist2(p.x, p.y, x, y); if (d < bd) { bd = d; best = p; } }
+    return best;
+  }
+
+  function handleBallEvent(ev) {
+    if (ev === "home" || ev === "away") { onGoal(ev); return; }
+    const leftSide = ev === "out-left";              // home defends the left goal
+    const defenders = leftSide ? "home" : "away";
+    const attackers = leftSide ? "away" : "home";
+    const lt = G.ball.lastTouch ? G.ball.lastTouch.side : attackers;
+    if (lt === defenders) cornerKick(attackers, leftSide);   // defender put it behind -> corner
+    else goalKick(defenders, leftSide);                       // attacker missed -> goal kick
+  }
+
+  function cornerKick(side, leftSide) {
+    const gx = leftSide ? CFG.left + 16 : CFG.right - 16;
+    const cy = G.ball.y < CFG.midY ? CFG.top + 16 : CFG.bottom - 16;
+    G.ball.reset(gx, cy);
+    const taker = nearestOfSide(side, gx, cy, true);
+    if (taker) giveBall(taker);
+    G.switchLock = 0; updateControlled(0);
+    banner("CORNER", "", 1.1); Sound.whistle();
+  }
+
+  function goalKick(defSide, leftSide) {
+    const list = defSide === "home" ? G.home : G.awayPlayers;
+    const gk = list.find((p) => p.keeper);
+    G.ball.reset(leftSide ? CFG.left + 34 : CFG.right - 34, CFG.midY);
+    if (gk) giveBall(gk);
+    G.switchLock = 0; updateControlled(0);
+    banner("GOAL KICK", "", 1.0);
+  }
+
+  function foul(defender, victim) {
+    defender.stealCd = CFG.stealCooldown; defender.recoverT = CFG.slideRecover;
+    const atkRight = victim.side === "home";                 // home attacks the right goal
+    const goalX = atkRight ? CFG.right : CFG.left;
+    const inBox = Math.abs(victim.x - goalX) < 98 && Math.abs(victim.y - CFG.midY) < (CFG.goalMouth + 64) / 2;
+    let card = null; if (chance(0.28)) card = chance(0.12) ? "RED" : "YELLOW";
+    if (card) showCard(card);
+    if (inBox) penalty(victim.side);
+    else freeKick(victim, card);
+  }
+
+  function freeKick(victim, card) {
+    giveBall(victim);                                        // the fouled team restarts with the ball
+    for (const p of G.players) {                             // push nearby opponents back for a moment of space
+      if (p.side === victim.side) continue;
+      if (dist(p.x, p.y, victim.x, victim.y) < 72) { const a = Math.atan2(p.y - victim.y, p.x - victim.x); p.x += Math.cos(a) * 64; p.y += Math.sin(a) * 64; }
+    }
+    G.switchLock = 0; updateControlled(0);
+    if (!card) { banner("FREE KICK", "", 1.0); Sound.whistle(); }
+  }
+
+  function penalty(side) {
+    const atkRight = side === "home";
+    const goalX = atkRight ? CFG.right : CFG.left;
+    const spotX = goalX + (atkRight ? -70 : 70);
+    G.ball.reset(spotX, CFG.midY);
+    const list = atkRight ? G.home : G.awayPlayers;
+    const shooter = list.find((p) => p.role === "ST" || p.role === "FWD") || list.find((p) => !p.keeper);
+    shooter.x = spotX + (atkRight ? -18 : 18); shooter.y = CFG.midY; shooter.vx = shooter.vy = 0;
+    giveBall(shooter);
+    for (const p of G.players) { if (p === shooter || p.keeper) continue; if (Math.abs(p.x - goalX) < 130) p.x = atkRight ? goalX - 150 : goalX + 150; }
+    G.switchLock = 0; updateControlled(0);
+    banner("PENALTY!", "", 1.6); Sound.whistle();
+  }
+
+  function showCard(color) {
+    G.cardFlash = 1.4; G.cardColor = color === "RED" ? "#e23b4d" : "#ffd23a";
+    banner(color + " CARD", "", 1.4); Sound.whistle();
   }
 
   function separateBodies() {
@@ -294,7 +373,8 @@
       if (best) {
         giveBall(best);
         b.vx *= 0.2; b.vy *= 0.2;
-        if (best.keeper) Sound.save(); else Sound.kick();
+        if (best.keeper) { Sound.save(); if (spd > 440) { banner("GREAT SAVE!", "", 1.2); shake(8); } }
+        else Sound.kick();
       }
     }
     // steals / tackles (keepers are safe holders; a juking carrier is untouchable)
@@ -305,21 +385,27 @@
         const sliding = p.slideT > 0;
         const reach = (sliding ? CFG.slideReach : CFG.stealReach) + p.radius * 0.4;
         const d = dist(p.x, p.y, owner.x, owner.y);
-        if (d < reach) {
-          let rate = 1.5 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.6);
-          if (sliding) rate *= 2.4;                 // a committed slide wins the ball
+        if (d >= reach) continue;
+        if (sliding) {
+          // a slide resolves once: win the ball cleanly, or give away a foul
+          if (p.slideResolved) continue;
+          p.slideResolved = true;
+          const winChance = clamp(0.4 + (p.def - owner.skl) * 0.45, 0.18, 0.82);
+          if (Math.random() < winChance) {
+            owner.stealCd = CFG.stealCooldown; p.heat = Math.min(1, p.heat + CFG.heatPerSkill);
+            giveBall(p); Sound.steal();
+          } else {
+            foul(p, owner);
+          }
+          break;
+        } else {
+          // standing tackle: gradual chance while in contact
+          const rate = 1.5 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.6);
           if (Math.random() < rate * dt) {
-            owner.stealCd = CFG.stealCooldown; p.stealCd = sliding ? 0.05 : 0.2;
-            p.heat = Math.min(1, p.heat + CFG.heatPerSkill);
-            if (sliding || Math.random() < 0.7) {
-              giveBall(p); if (!sliding) { p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1; }
-            } else {
-              b.owner = null; b.lastTouch = p;
-              const a = Math.atan2(owner.y - p.y, owner.x - p.x) + rnd(-0.5, 0.5);
-              b.vx = Math.cos(a) * 220; b.vy = Math.sin(a) * 220;
-            }
-            Sound.steal();
-            break;
+            owner.stealCd = CFG.stealCooldown; p.stealCd = 0.2; p.heat = Math.min(1, p.heat + CFG.heatPerSkill);
+            if (Math.random() < 0.7) { giveBall(p); p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1; }
+            else { b.owner = null; b.lastTouch = p; const a = Math.atan2(owner.y - p.y, owner.x - p.x) + rnd(-0.5, 0.5); b.vx = Math.cos(a) * 220; b.vy = Math.sin(a) * 220; }
+            Sound.steal(); break;
           }
         }
       }
@@ -393,6 +479,7 @@
     G.t += dt;
     if (G.banner > 0) G.banner -= dt;
     if (G.shake > 0) G.shake = Math.max(0, G.shake - 40 * dt);
+    if (G.cardFlash > 0) G.cardFlash -= dt;
     for (const p of G.players) if (p.justFired) { p.justFired = false; if (p.side === "home" && G.state === "PLAY") { banner("ON FIRE!", "", 1.1); shake(5); } }
 
     switch (G.state) {
@@ -439,6 +526,12 @@
         simulate(dt);
         updateCamera(dt);
         G.clock -= dt;
+        if (!G.subDone && G.clock <= CFG.matchSeconds / 2 && G.clock > 0) {
+          G.subDone = true;
+          const out = G.home.filter((p) => !p.keeper); const sp = out[rndi(0, out.length - 1)];
+          sp.turbo = 1; sp.heat = 0;
+          banner("SUBSTITUTION", "fresh legs for KORNA", 1.4); Sound.whistle();
+        }
         if (G.clock <= 0) { G.clock = 0; endMatch(); }
         break;
 
@@ -557,5 +650,5 @@
   requestAnimationFrame(loop);
 
   // expose a small handle for debugging / tinkering
-  window.KORNA = { G, newMatch, TEAMS, CFG };
+  window.KORNA = { G, newMatch, TEAMS, CFG, handleBallEvent, foul, cornerKick, goalKick, penalty, showCard };
 })();

@@ -128,6 +128,7 @@ class Player {
     if (this.slideT > 0 || this.recoverT > 0) return false;
     this.vx = Math.cos(this.facing) * CFG.slideSpeed; this.vy = Math.sin(this.facing) * CFG.slideSpeed;
     this.slideT = CFG.slideTime; this.lunge = CFG.slideTime; this.lungeDir = 0;
+    this.slideResolved = false;   // a slide resolves once: win the ball, or concede a foul
     return true;
   }
 
@@ -203,21 +204,17 @@ class Ball {
 
     // left board / goal (away team attacks left)
     if (this.x < CFG.left + r) {
-      if (inMouth(this.y) && this.z < CFG.barHeight && this.justScored <= 0) {
-        scored = "away";
-      } else {
-        this.x = CFG.left + r; this.vx = -this.vx * CFG.ballBounce;
-        if (inMouth(this.y)) Sound.post(); else Sound.wall();
-      }
+      if (inMouth(this.y) && this.z < CFG.barHeight && this.justScored <= 0) scored = "away";
+      else if (inMouth(this.y)) { this.x = CFG.left + r; this.vx = -this.vx * CFG.ballBounce; Sound.post(); }   // hit the bar/post
+      else if (this.justScored <= 0) { this.x = CFG.left + r; this.vx = 0; this.vy *= 0.3; scored = "out-left"; } // out behind goal
+      else { this.x = CFG.left + r; this.vx = -this.vx * CFG.ballBounce; }
     }
     // right board / goal (home team attacks right)
     if (this.x > CFG.right - r) {
-      if (inMouth(this.y) && this.z < CFG.barHeight && this.justScored <= 0) {
-        scored = "home";
-      } else {
-        this.x = CFG.right - r; this.vx = -this.vx * CFG.ballBounce;
-        if (inMouth(this.y)) Sound.post(); else Sound.wall();
-      }
+      if (inMouth(this.y) && this.z < CFG.barHeight && this.justScored <= 0) scored = "home";
+      else if (inMouth(this.y)) { this.x = CFG.right - r; this.vx = -this.vx * CFG.ballBounce; Sound.post(); }
+      else if (this.justScored <= 0) { this.x = CFG.right - r; this.vx = 0; this.vy *= 0.3; scored = "out-right"; }
+      else { this.x = CFG.right - r; this.vx = -this.vx * CFG.ballBounce; }
     }
 
     return scored;

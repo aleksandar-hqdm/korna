@@ -334,6 +334,11 @@ const Render = (() => {
     }
     ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = sans(12); ctx.textAlign = "center";
     ctx.fillText("MOVE arrows   SPRINT e   SHOOT d (hold)   PASS s   LOB/SLIDE a   SWITCH space", CFG.W / 2, CFG.H - 12);
+    if (G.cardFlash > 0) {
+      ctx.save(); ctx.globalAlpha = clamp(G.cardFlash, 0, 1);
+      rrect(ctx, CFG.midX - 22, CFG.midY - 100, 44, 62, 5); ctx.fillStyle = G.cardColor || "#ffd23a"; ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+    }
     if (G.banner > 0) banner(ctx, G.bannerText);
   }
 
