@@ -43,6 +43,12 @@ const Render = (() => {
     const x = c.getContext("2d");
     const L = CFG.left, R = CFG.right, T = CFG.top, B = CFG.bottom, pw = CFG.pw, ph = CFG.ph;
 
+    const bgImg = (typeof Assets !== "undefined" && team) ? Assets.bg(team.id) : null;
+    if (bgImg) {
+      // painted per-team backdrop fills the surround; court is drawn on top below
+      x.imageSmoothingEnabled = false; x.drawImage(bgImg, 0, 0, CFG.W, CFG.H); x.imageSmoothingEnabled = true;
+      x.fillStyle = "rgba(0,0,0,0.16)"; x.fillRect(0, 0, CFG.W, CFG.H);
+    } else {
     // stands (lighter toward the court)
     x.fillStyle = "#0b0e15"; x.fillRect(0, 0, CFG.W, CFG.H);
     const sg = x.createRadialGradient(CFG.midX, CFG.midY, ph * 0.5, CFG.midX, CFG.midY, CFG.W * 0.72);
@@ -70,6 +76,7 @@ const Render = (() => {
     x.globalAlpha = 0.07; x.fillStyle = env.accent; x.fillRect(0, 0, CFG.W, CFG.H); x.globalAlpha = 1;
     // spectators watching from the stands (Street-Hoop style)
     spectators(x);
+    }
     // ad hoardings ringing the court
     x.fillStyle = "#10141d"; x.fillRect(L - 15, T - 15, pw + 30, ph + 30);
     const ads = ["#e23b4d", "#ffd23a", "#1a57c8", "#16a64a", "#ff7a18", "#ffffff"];

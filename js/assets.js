@@ -12,6 +12,7 @@ const Assets = (() => {
   let heightWorld = 46;
   const sets = {};      // name -> SpriteSet
   const faces = {};     // name -> HTMLImage.  null while missing.
+  const bgs = {};       // team id -> background HTMLImage
   let loaded = false;
 
   function loadImage(src) {
@@ -61,6 +62,8 @@ const Assets = (() => {
         }
         if (def.portrait) jobs.push(loadImage(base + def.portrait).then((img) => { faces[name] = img; }));
       }
+      // per-team painted backgrounds (optional)
+      if (typeof TEAMS !== "undefined") for (const t of TEAMS) jobs.push(loadImage(base + "backgrounds/" + t.id + ".png").then((img) => { if (img) bgs[t.id] = img; }));
       await Promise.all(jobs);
       loaded = true;
     } catch (e) { /* no manifest yet — stay in procedural mode */ }
@@ -74,5 +77,7 @@ const Assets = (() => {
     sprite: (name) => { const s = sets[name]; return s && s.ok ? s : null; },
     // returns a portrait image or null to use procedural Portrait
     face: (name) => faces[name] || null,
+    // returns a painted background image for a team id, or null
+    bg: (id) => bgs[id] || null,
   };
 })();
