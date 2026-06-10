@@ -21,8 +21,8 @@ const CFG = {
   ballRadius: 9,
 
   // Player movement (per second) — tuned slower so the zoomed view reads smooth
-  accel: 1500,
-  maxSpeed: 178,
+  accel: 1250,
+  maxSpeed: 142,
   sprintMul: 1.45,
   friction: 10,              // how quickly a player slides to a stop
   turnRate: 12,              // how fast facing rotates toward velocity
@@ -30,12 +30,18 @@ const CFG = {
   // Interaction
   controlRadius: 30,         // how close to "own" the loose ball
   dribbleDist: 24,           // how far ahead the ball sits while dribbling
-  stealReach: 30,
-  stealCooldown: 0.55,
+  stealReach: 28,
+  stealCooldown: 0.72,
   shootMin: 340,
-  shootMax: 820,
+  shootMax: 880,
   shootChargeRate: 720,      // power per second while holding shoot
   passPower: 560,
+
+  // trap/interception speed gates: a fast ball blows past everyone but the keeper,
+  // so a well-struck shot can actually beat the defence and score.
+  interceptMax: 270,         // an OPPONENT can only trap a ball slower than this
+  passReceiveMax: 660,       // a TEAMMATE can receive up to this (passes land)
+  keeperCatchMax: 700,       // a keeper can stop up to this; a full-power shot beats it
 
   matchSeconds: 120,
   goalCelebration: 2.6,

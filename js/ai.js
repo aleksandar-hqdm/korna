@@ -46,10 +46,12 @@ const AI = (() => {
     const ballDist = Math.abs(w.ball.x - gx);
     if (threat && ballDist < 170) {
       // step off the line toward the ball, but never too far
-      const out = lerp(0, 64, 1 - ballDist / 170);
+      const out = lerp(0, 60, 1 - ballDist / 170);
       tx = lineX + atkSign(p.side) * out;
       ty = clamp(w.ball.y, CFG.goalTop - 4, CFG.goalBot + 4);
     }
+    // imperfect positioning: the keeper drifts, so well-placed corner shots can beat it
+    ty = clamp(ty + Math.sin(performance.now() / 620 + (p.num || 1) * 2) * CFG.goalMouth * 0.2, CFG.goalTop - 6, CFG.goalBot + 6);
     driveTo(p, tx, ty, ballDist < 90);
 
     // anticipate a fast shot: lunge toward the ball's vertical line
@@ -94,11 +96,13 @@ const AI = (() => {
 
   function shoot(p, w) {
     const gx = tgtGoalX(p.side);
-    const scatter = (CFG.goalMouth * 0.55) * (0.7 / p.skl) * (1.1 - w.diff * 0.1);
-    const aimY = clamp(CFG.midY + rnd(-1, 1) * scatter, CFG.goalTop + 10, CFG.goalBot - 10);
+    const gk = w.opponents.find((o) => o.keeper);
+    let aimY = gk ? (gk.y < CFG.midY ? CFG.goalBot - 18 : CFG.goalTop + 18) : CFG.midY;  // open corner
+    const scatter = (CFG.goalMouth * 0.42) * (0.7 / p.skl) * (1.1 - w.diff * 0.1);
+    aimY = clamp(aimY + rnd(-1, 1) * scatter, CFG.goalTop + 10, CFG.goalBot - 10);
     const ang = Math.atan2(aimY - w.ball.y, gx - w.ball.x);
-    const power = lerp(CFG.shootMin + 220, CFG.shootMax, Math.min(1, 0.45 + 0.1 * w.diff)) * p.pow;
-    const lift = chance(0.22) ? rnd(120, 230) : rnd(0, 50);
+    const power = lerp(CFG.shootMax * 0.78, CFG.shootMax, Math.min(1, 0.4 + 0.12 * w.diff)) * p.pow;  // hard enough to score
+    const lift = chance(0.2) ? rnd(110, 200) : rnd(0, 50);
     w.ball.shoot(p, ang, power, lift);
     Sound.kick();
   }
@@ -124,6 +128,12 @@ const AI = (() => {
     Sound.pass();
   }
 
+  // gentle organic wander so off-ball movement varies and never looks scripted
+  function wob(p, amp) {
+    const t = performance.now() / 1000, id = (p.num || 1) * 1.7;
+    return [Math.sin(t * 0.8 + id) * amp, Math.cos(t * 0.9 + id * 1.3) * amp];
+  }
+
   // ---------------- support an attacking teammate ----------------
   function supportAttack(p, w) {
     const sign = atkSign(p.side);
@@ -139,7 +149,8 @@ const AI = (() => {
       tx = lerp(p.homeX + sign * 50, ball.x - sign * 60, 0.5);
       ty = lerp(p.homeY, ball.y, 0.35);
     }
-    driveTo(p, tx, ty, false);
+    const wb = wob(p, 22);
+    driveTo(p, tx + wb[0], ty + wb[1], false);
   }
 
   // ---------------- defend (an opponent has the ball) ----------------
@@ -157,7 +168,8 @@ const AI = (() => {
       const ogx = ownGoalX(p.side);
       const tx = lerp(p.homeX, ogx + sign * 80, 0.35) + (w.ball.x - p.homeX) * 0.18;
       const ty = lerp(p.homeY, w.ball.y, 0.3);
-      driveTo(p, tx, ty, false);
+      const wb = wob(p, 18);
+      driveTo(p, tx + wb[0], ty + wb[1], false);
     }
   }
 
@@ -173,7 +185,8 @@ const AI = (() => {
       // hold a sensible shape biased toward the ball
       const tx = lerp(p.homeX, w.ball.x, 0.3);
       const ty = lerp(p.homeY, w.ball.y, 0.3);
-      driveTo(p, tx, ty, false);
+      const wb = wob(p, 16);
+      driveTo(p, tx + wb[0], ty + wb[1], false);
     }
   }
 

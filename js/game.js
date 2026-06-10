@@ -184,16 +184,19 @@
   }
 
   function userShoot(p, power) {
+    const gx = CFG.right;
+    const gk = G.awayPlayers.find((a) => a.keeper);
+    // aim at the open corner away from the keeper
+    let aimY = clamp(G.ball.y, CFG.goalTop + 18, CFG.goalBot - 18);
+    if (gk) aimY = (gk.y < CFG.midY) ? CFG.goalBot - 16 : CFG.goalTop + 16;
+    aimY += rnd(-10, 10);
+    const toGoal = Math.atan2(aimY - p.y, gx - p.x);
     let ang = p.facing;
-    // gentle aim assist toward the target goal when in range and facing forward
-    const gx = CFG.right, gy = clamp(G.ball.y, CFG.goalTop + 16, CFG.goalBot - 16);
-    const toGoal = Math.atan2(gy - p.y, gx - p.x);
-    const nearGoal = Math.abs(gx - p.x) < CFG.pw * 0.6;
-    if (Math.cos(ang - toGoal) > 0.4 && nearGoal) ang = ang + angDelta(ang, toGoal) * 0.45;
-    // a fully-charged strike near goal becomes a SPECIAL: extra power, lift, flair
-    const special = power > CFG.shootMax * 0.82 && Math.abs(gx - p.x) < CFG.pw * 0.45;
-    const pw = power * (p.fire > 0 ? 1.12 : 1) * (special ? 1.12 : 1);
-    const lift = special ? rnd(120, 210) : (power > CFG.shootMax * 0.8 ? rnd(60, 150) : rnd(0, 50));
+    const nearGoal = Math.abs(gx - p.x) < CFG.pw * 0.75;
+    if (nearGoal) ang = ang + angDelta(ang, toGoal) * 0.7;   // strong aim assist toward the corner
+    const special = power > CFG.shootMax * 0.82 && Math.abs(gx - p.x) < CFG.pw * 0.5;
+    const pw = power * (p.fire > 0 ? 1.12 : 1) * (special ? 1.1 : 1);
+    const lift = special ? rnd(110, 190) : (power > CFG.shootMax * 0.8 ? rnd(50, 130) : rnd(0, 50));
     G.ball.shoot(p, ang, pw, lift);
     Sound.kick();
     if (special) { shake(7); flash(G.ball.x, G.ball.y); p.heat = Math.min(1, p.heat + CFG.heatPerSkill); Sound.post(); }
@@ -276,10 +279,15 @@
     const b = G.ball;
     // pickups of a loose, low ball
     if (!b.owner && b.justScored <= 0) {
+      const spd = b.speed();
+      const fromSide = b.lastTouch ? b.lastTouch.side : null;
       let best = null, bd = Infinity;
       for (const p of G.players) {
         if (p.kickCd > 0) continue;
-        const reach = (p.keeper ? CFG.controlRadius * 1.45 * p.reach : CFG.controlRadius);
+        const teammate = fromSide && p.side === fromSide && !p.keeper;
+        const maxSpd = p.keeper ? CFG.keeperCatchMax : (teammate ? CFG.passReceiveMax : CFG.interceptMax);
+        if (spd > maxSpd) continue;                              // too fast to trap -> shots blow past
+        const reach = (p.keeper ? CFG.controlRadius * 1.12 * p.reach : CFG.controlRadius);
         const d = dist(p.x, p.y, b.x, b.y);
         if (d < reach && b.z < (p.keeper ? CFG.barHeight : 34) && d < bd) { bd = d; best = p; }
       }
@@ -298,7 +306,7 @@
         const reach = (sliding ? CFG.slideReach : CFG.stealReach) + p.radius * 0.4;
         const d = dist(p.x, p.y, owner.x, owner.y);
         if (d < reach) {
-          let rate = 2.1 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.7);
+          let rate = 1.5 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.6);
           if (sliding) rate *= 2.4;                 // a committed slide wins the ball
           if (Math.random() < rate * dt) {
             owner.stealCd = CFG.stealCooldown; p.stealCd = sliding ? 0.05 : 0.2;
