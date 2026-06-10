@@ -57,6 +57,8 @@ const Render = (() => {
       g.addColorStop(0, "rgba(255,255,240,0.34)"); g.addColorStop(1, "rgba(255,255,240,0)");
       x.fillStyle = g; x.fillRect(0, 0, CFG.W, CFG.H);
     }
+    // spectators watching from the stands (Street-Hoop style)
+    spectators(x);
     // ad hoardings ringing the court
     x.fillStyle = "#10141d"; x.fillRect(L - 15, T - 15, pw + 30, ph + 30);
     const ads = ["#e23b4d", "#ffd23a", "#1a57c8", "#16a64a", "#ff7a18", "#ffffff"];
@@ -90,6 +92,20 @@ const Render = (() => {
     vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.34)");
     x.fillStyle = vg; x.fillRect(0, 0, CFG.W, CFG.H);
     pitch = c;
+  }
+  function spectators(x) {
+    const skins = ["#f0c39b", "#a8703f", "#e6b487", "#5a3a23", "#eec39a", "#d8a878"];
+    const tops = ["#e23b4d", "#1a57c8", "#ffd23a", "#16a64a", "#ff7a18", "#e0e0e0", "#c86bd0", "#2bb6a8"];
+    const pick = (a) => a[(Math.random() * a.length) | 0];
+    function row(yBase) {
+      for (let px = CFG.left + 6; px < CFG.right; px += 25) {
+        const j = (Math.random() * 6 - 3);
+        x.fillStyle = "rgba(0,0,0,0.22)"; x.fillRect(px - 7, yBase + j + 13, 14, 3);     // bench shadow
+        x.fillStyle = pick(tops); x.fillRect(px - 6, yBase + j, 12, 15);                  // torso
+        x.fillStyle = pick(skins); x.beginPath(); x.arc(px, yBase + j - 4, 5.5, 0, Math.PI * 2); x.fill(); // head
+      }
+    }
+    row(CFG.top - 46); row(CFG.bottom + 20);
   }
   function drawGoal(x, gx, dir) {
     const depth = CFG.goalDepth, x0 = dir === 1 ? gx - depth : gx, w = depth, y0 = CFG.goalTop, h = CFG.goalMouth;
@@ -136,79 +152,70 @@ const Render = (() => {
     }
   }
 
-  /* ---------- player sprite (outlined, animated, 3/4 top-down) ---------- */
+  /* ---------- player sprite: PixelLab billboard, else consistent side-on fallback ---------- */
   function sprite(ctx, p, controlled, teamColor) {
     const set = Assets.sprite(p.artId);
     if (set) return billboard(ctx, p, controlled, teamColor, set);
+    return procBillboard(ctx, p, controlled, teamColor);
+  }
+
+  // thick outlined limb (a coloured line with a dark edge)
+  function limbLine(ctx, x1, y1, x2, y2, thick, color) {
+    ctx.lineCap = "round";
+    ctx.strokeStyle = OUT; ctx.lineWidth = thick + 2.4; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = thick; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+
+  // procedurally-drawn side-on footballer — same size/style as the PNG billboards,
+  // so every player on the pitch looks consistent even without generated art
+  function procBillboard(ctx, p, controlled, teamColor) {
     drawAura(ctx, p);
-    const vr = p.radius * 1.4;
-    const kit = p.kit;
-    const speed = p.speedNorm;
-    const stride = Math.sin(p.animPhase) * vr * (0.35 + speed * 0.7);
+    const H = Assets.heightWorld() * (p.size || 1);
+    const w = H * 0.46;
+    const running = p.speedNorm > 0.16;
+    const stride = running ? Math.sin(p.animPhase) : Math.sin(performance.now() / 380) * 0.22;
+    const hop = p.celebrate > 0 ? Math.abs(Math.sin(p.celebrate * 12)) * H * 0.16 : 0;
+    const dir = Math.cos(p.facing) < -0.05 ? -1 : 1;
+    const skin = p.skin || "#eebd95", hair = p.hair || "#3a2a1a";
+    const shirt = p.kit.shirt, shorts = p.kit.shorts || "#222", boot = "#23252e";
 
-    // shadow
-    ctx.fillStyle = "rgba(0,0,0,0.30)";
-    ctx.beginPath(); ctx.ellipse(p.x + 2, p.y + vr * 0.62, vr * 1.05, vr * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-
-    // selection ring
-    if (controlled) {
-      ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95;
-      ctx.beginPath(); ctx.ellipse(p.x, p.y + vr * 0.62, vr * 1.25, vr * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    let f = p.facing;
-    if (p.lunge > 0) f += p.lungeDir * 0.6 * (p.lunge / 0.35);
-    const hop = p.celebrate > 0 ? Math.abs(Math.sin(p.celebrate * 12)) * vr * 0.4 : 0;
+    ctx.fillStyle = "rgba(0,0,0,0.30)"; ctx.beginPath(); ctx.ellipse(p.x, p.y, w * 0.62, w * 0.24, 0, 0, Math.PI * 2); ctx.fill();
+    if (controlled) { ctx.strokeStyle = teamColor; ctx.lineWidth = 3; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.ellipse(p.x, p.y, w * 0.8, w * 0.3, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
 
     ctx.save();
     ctx.translate(p.x, p.y - hop);
-    ctx.rotate(f);
+    ctx.scale(dir, 1);
 
-    const shorts = kit.shorts || "#222";
-    const boot = "#23252e";
-    // legs (one forward, one back)
-    drawLeg(ctx, vr, stride, 0.42, p, shorts, boot);
-    drawLeg(ctx, vr, -stride, -0.42, p, shorts, boot);
+    const legLen = H * 0.36, bodyH = H * 0.36, headR = H * 0.15;
+    const hipY = -legLen, shY = -(legLen + bodyH), headCY = shY - headR * 0.7;
+    const sw = stride * H * 0.18;
 
-    // arms swinging opposite, or up when celebrating
-    const armSwing = p.celebrate > 0 ? -vr * 0.6 : -stride * 0.5;
-    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(armSwing, vr * 0.95, vr * 0.32, vr * 0.26, 0, 0, Math.PI * 2); }, p.skin, 2);
-    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(-armSwing, -vr * 0.95, vr * 0.32, vr * 0.26, 0, 0, Math.PI * 2); }, p.skin, 2);
-
+    limbLine(ctx, 0, hipY, sw, 0, H * 0.12, skin);
+    limbLine(ctx, 0, hipY, -sw, 0, H * 0.12, skin);
+    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(sw + 2, 0, H * 0.1, H * 0.06, 0, 0, Math.PI * 2); }, boot, 2);
+    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(-sw + 2, 0, H * 0.1, H * 0.06, 0, 0, Math.PI * 2); }, boot, 2);
+    oFill(ctx, () => rrect(ctx, -w * 0.5, hipY - H * 0.04, w, legLen * 0.5, 3), shorts, 2.2);
+    // back arm
+    limbLine(ctx, w * 0.05, shY + H * 0.05, w * 0.05 - sw * 0.8, shY + bodyH * 0.7, H * 0.1, skin);
     // torso
-    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(0, 0, vr * 1.05, vr * 0.86, 0, 0, Math.PI * 2); }, kit.shirt, 2.4);
-    // shorts wedge
-    ctx.fillStyle = shorts; ctx.beginPath(); ctx.ellipse(-vr * 0.5, 0, vr * 0.55, vr * 0.78, 0, 0, Math.PI * 2); ctx.fill();
-    // shirt shading + sheen
-    ctx.fillStyle = shade(kit.shirt, -0.18); ctx.beginPath(); ctx.ellipse(vr * 0.1, vr * 0.4, vr * 0.9, vr * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.14)"; ctx.beginPath(); ctx.ellipse(vr * 0.2, -vr * 0.4, vr * 0.55, vr * 0.3, 0, 0, Math.PI * 2); ctx.fill();
-    // number
-    ctx.save(); ctx.rotate(Math.PI / 2); ctx.fillStyle = kit.num || "#fff"; ctx.font = sans(Math.round(vr * 0.62), true); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(p.num || ""), 0, vr * 0.5); ctx.restore();
-    // keeper gloves + adidas stripes hint
-    if (p.keeper) { ctx.fillStyle = "#eef1f6"; [-1, 1].forEach((s) => { ctx.beginPath(); ctx.arc(vr * 0.2, s * vr * 1.05, vr * 0.3, 0, Math.PI * 2); ctx.fill(); }); }
-    // captain armband
-    if (p.captain) { ctx.fillStyle = "#ffd23a"; rrect(ctx, -vr * 0.05, vr * 0.74, vr * 0.5, vr * 0.3, 2); ctx.fill(); }
-
-    // head: hair dome + face crescent toward facing
-    const hr = vr * 0.62;
-    oFill(ctx, () => { ctx.beginPath(); ctx.arc(vr * 0.28, 0, hr, 0, Math.PI * 2); }, p.hair || "#3a2a1a", 2.2);
-    ctx.fillStyle = p.skin; ctx.beginPath(); ctx.arc(vr * 0.28 + hr * 0.5, 0, hr * 0.72, -1.1, 1.1); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = shade(p.hair || "#3a2a1a", 0.2); ctx.beginPath(); ctx.arc(vr * 0.12, -hr * 0.4, hr * 0.32, 0, Math.PI * 2); ctx.fill();
+    oFill(ctx, () => rrect(ctx, -w * 0.5, shY, w, bodyH + H * 0.04, w * 0.32), shirt, 2.6);
+    ctx.fillStyle = shade(shirt, -0.16); ctx.fillRect(-w * 0.5 + 2, shY + bodyH * 0.55, w - 4, bodyH * 0.42);
+    if (p.captain) { ctx.fillStyle = "#ffd23a"; rrect(ctx, w * 0.16, shY + H * 0.04, w * 0.24, H * 0.1, 2); ctx.fill(); }
+    // front arm (swings opposite)
+    limbLine(ctx, w * 0.05, shY + H * 0.05, w * 0.05 + sw * 0.8, shY + bodyH * 0.78, H * 0.1, skin);
+    // head + hair + eye toward facing
+    oFill(ctx, () => { ctx.beginPath(); ctx.arc(headR * 0.15, headCY, headR, 0, Math.PI * 2); }, skin, 2.2);
+    ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(0, headCY - headR * 0.22, headR * 0.98, Math.PI * 0.15, Math.PI * 1.55); ctx.fill();
+    if (p.keeper) { ctx.fillStyle = "#eef1f6"; ctx.beginPath(); ctx.arc(w * 0.05 + sw * 0.8, shY + bodyH * 0.78, H * 0.07, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = "#1a1320"; ctx.beginPath(); ctx.arc(headR * 0.62, headCY - headR * 0.05, headR * 0.16, 0, Math.PI * 2); ctx.fill();
 
     ctx.restore();
 
-    // controlled chevron
     if (controlled) {
-      const by = p.y - vr * 2.0 - hop + Math.sin(performance.now() / 200) * 2;
+      const by = p.y - H - 8 - hop + Math.sin(performance.now() / 200) * 2;
       ctx.fillStyle = teamColor; ctx.strokeStyle = OUT; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(p.x - 7, by); ctx.lineTo(p.x + 7, by); ctx.lineTo(p.x, by + 9); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
-  }
-  function drawLeg(ctx, vr, swing, sideF, p, shorts, boot) {
-    const hipx = -vr * 0.15, hipy = sideF * vr, footx = vr * 0.55 + swing;
-    oFill(ctx, () => { ctx.beginPath(); ctx.moveTo(hipx, hipy); ctx.lineTo(footx, hipy); }, shorts, vr * 0.42); // leg as fat stroke
-    oFill(ctx, () => { ctx.beginPath(); ctx.ellipse(footx, hipy, vr * 0.26, vr * 0.2, 0, 0, Math.PI * 2); }, boot, 2); // boot
   }
 
   /* ---------- billboard sprite (side-view PNG, used when art is loaded) ---------- */

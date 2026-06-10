@@ -1,6 +1,6 @@
 {
   "_comment": "KORNA art manifest. PixelLab PNGs: portraits/<id>.png busts, sprites/<id>_{idle,run,kick}.png horizontal strips. Frame size inferred (frameH = image height, frameW = width / frames). Missing files fall back to procedural art.",
-  "spriteHeightWorld": 46,
+  "spriteHeightWorld": 56,
   "characters": {
     "Vanja": { "portrait": "portraits/vanja.png", "anims": { "idle": { "sheet": "sprites/vanja_idle.png", "frames": 1, "fps": 2 }, "run": { "sheet": "sprites/vanja_run.png", "frames": 4, "fps": 12 }, "kick": { "sheet": "sprites/vanja_kick.png", "frames": 2, "fps": 14 } } },
     "Fiči": { "portrait": "portraits/fici.png", "anims": { "idle": { "sheet": "sprites/fici_idle.png", "frames": 1, "fps": 2 }, "run": { "sheet": "sprites/fici_run.png", "frames": 4, "fps": 12 }, "kick": { "sheet": "sprites/fici_kick.png", "frames": 2, "fps": 14 } } },
