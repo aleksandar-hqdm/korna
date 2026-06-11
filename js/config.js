@@ -20,12 +20,12 @@ const CFG = {
   gravity: 1500,             // downward accel on ball height (z)
   ballRadius: 9,
 
-  // Player movement (per second) — tuned slower so the zoomed view reads smooth
-  accel: 1250,
-  maxSpeed: 142,
-  sprintMul: 1.45,
-  friction: 10,              // how quickly a player slides to a stop
-  turnRate: 12,              // how fast facing rotates toward velocity
+  // Player movement (per second) — slower + weightier, arcade-sim feel
+  accel: 900,
+  maxSpeed: 116,
+  sprintMul: 1.42,
+  friction: 8.5,             // a touch of glide = weight/momentum
+  turnRate: 9.5,             // slower turns = weight
 
   // Interaction
   controlRadius: 30,         // how close to "own" the loose ball

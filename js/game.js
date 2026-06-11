@@ -217,11 +217,12 @@
       if (score > bestScore) { bestScore = score; best = m; }
     }
     if (best && bestScore > 0.1) {
-      const lead = 0.16;
-      G.ball.passTo(p, best.x + best.vx * lead, best.y + best.vy * lead, CFG.passPower);
+      const lead = 0.16, tx = best.x + best.vx * lead, ty = best.y + best.vy * lead;
+      const power = clamp(dist(p.x, p.y, tx, ty) * 2.3, 230, 560);   // weight the pass to distance
+      G.ball.passTo(p, tx, ty, power);
     } else {
       // no good option: drive it forward
-      G.ball.shoot(p, p.facing, CFG.passPower * 0.9, 40);
+      G.ball.shoot(p, p.facing, 360, 40);
     }
     p.act = "pass"; p.actT = 0.32;
     Sound.pass();
@@ -401,12 +402,20 @@
           }
           break;
         } else {
-          // standing tackle: gradual chance while in contact
-          const rate = 1.5 * clamp(0.45 + (p.def - owner.skl) * 0.7, 0.18, 1.6);
+          // standing challenge: chance depends on closeness, closing speed and position
+          const dx = owner.x - p.x, dy = owner.y - p.y, dd = Math.hypot(dx, dy) || 1, nx = dx / dd, ny = dy / dd;
+          const closing = (p.vx * nx + p.vy * ny) - (owner.vx * nx + owner.vy * ny);  // + = catching up
+          const gx = owner.side === "home" ? CFG.right : CFG.left;                    // goal the carrier attacks
+          const goalside = Math.sign(gx - owner.x) === Math.sign(p.x - owner.x);
+          let rate = 1.15 * clamp(0.35 + (p.def - owner.skl) * 0.6, 0.1, 1.3);
+          rate *= clamp(1.5 - dd / reach, 0.45, 1.5);    // pressure: closer is stronger
+          if (closing < -25) rate *= 0.25;               // being outrun -> can't win it (shield works)
+          else if (closing > 15) rate *= 1.25;           // actively closing down
+          if (goalside) rate *= 1.3;                     // good tackling position
           if (Math.random() < rate * dt) {
             owner.stealCd = CFG.stealCooldown; p.stealCd = 0.2; p.heat = Math.min(1, p.heat + CFG.heatPerSkill);
-            if (Math.random() < 0.7) { giveBall(p); p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1; }
-            else { b.owner = null; b.lastTouch = p; const a = Math.atan2(owner.y - p.y, owner.x - p.x) + rnd(-0.5, 0.5); b.vx = Math.cos(a) * 220; b.vy = Math.sin(a) * 220; }
+            if (Math.random() < 0.72) { giveBall(p); p.lunge = 0.25; p.lungeDir = sign(owner.y - p.y) || 1; }
+            else { b.owner = null; b.lastTouch = p; const a = Math.atan2(owner.y - p.y, owner.x - p.x) + rnd(-0.5, 0.5); b.vx = Math.cos(a) * 200; b.vy = Math.sin(a) * 200; }
             Sound.steal(); break;
           }
         }
