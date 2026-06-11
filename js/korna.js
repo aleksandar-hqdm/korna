@@ -1,0 +1,388 @@
+/* =========================================================================
+   KORNA — Phaser 3 build (milestone 1: smooth physics match)
+   Reuses the PixelLab sprite sheets + teams.js data.
+   ========================================================================= */
+"use strict";
+
+const GW = 960, GH = 600;
+const PITCH = { w: 920, h: 1440, mg: 70 };
+PITCH.fw = PITCH.w - PITCH.mg * 2;
+PITCH.fh = PITCH.h - PITCH.mg * 2;
+PITCH.cx = PITCH.w / 2;
+PITCH.mouth = 230;                 // goal width
+const GOAL_TOP = 34, GOAL_BOT = PITCH.h - 34;   // goal lines (home attacks toward GOAL_TOP)
+
+const ACC = 1150, MAXV = 205, SPRINTV = 300, DRAG = 950;
+const KID_PREFIX = { "Vanja": "vanja", "Fiči": "fici", "Bobo": "bobo", "Marko": "marko", "Jan": "jan", "Cacko": "cacko" };
+const ANIMS = ["idle", "run", "sprint", "kick", "pass", "tackle", "celebrate"];
+
+// formation: fy 0 = far/top goal, 1 = near/bottom. home attacks UP (toward top).
+const HOME_POS = { Vanja: [0.5, 0.60], "Fiči": [0.5, 0.78], Bobo: [0.42, 0.33], Marko: [0.25, 0.55], Jan: [0.66, 0.45], Cacko: [0.5, 0.93] };
+const AWAY_POS = [[0.5, 0.07], [0.3, 0.24], [0.5, 0.22], [0.7, 0.24], [0.36, 0.40], [0.64, 0.40], [0.42, 0.55], [0.58, 0.55]];
+const AWAY_ROLES = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "FWD", "FWD"];
+
+const FX = (f) => PITCH.mg + f * PITCH.fw;
+const FY = (f) => PITCH.mg + f * PITCH.fh;
+const inMouth = (x) => x > PITCH.cx - PITCH.mouth / 2 && x < PITCH.cx + PITCH.mouth / 2;
+
+/* ----------------------------- Preload ----------------------------- */
+class Preload extends Phaser.Scene {
+  constructor() { super("Preload"); }
+  preload() {
+    this.load.maxParallelDownloads = 120;   // dispatch all sheets at once (avoids a batch stall)
+    const sheet = (key, file) => this.load.spritesheet(key, "assets/sprites/" + file + ".png", { frameWidth: 64, frameHeight: 64 });
+    const loadChar = (prefix, gk) => {
+      ANIMS.forEach((a) => sheet(prefix + "_" + a, prefix + "_" + a));
+      if (gk) ["dive", "catch"].forEach((a) => sheet(prefix + "_" + a, prefix + "_" + a));
+    };
+    Object.values(KID_PREFIX).forEach((p) => loadChar(p, p === "cacko"));
+    this.awayId = "ar86";                       // milestone 1: vs Argentina
+    loadChar(this.awayId, false);
+    this.load.image("bg", "assets/backgrounds/" + this.awayId + ".png");
+    // simple loading text
+    this.add.text(GW / 2, GH / 2, "KORNA", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffcf3a" }).setOrigin(0.5);
+  }
+  create() {
+    const mk = (key, rate, repeat) => { if (this.textures.exists(key)) this.anims.create({ key, frames: this.anims.generateFrameNumbers(key), frameRate: rate, repeat }); };
+    const all = [...Object.values(KID_PREFIX), this.awayId];
+    all.forEach((p) => {
+      mk(p + "_idle", 3, -1); mk(p + "_run", 12, -1); mk(p + "_sprint", 15, -1);
+      mk(p + "_kick", 18, 0); mk(p + "_pass", 18, 0); mk(p + "_tackle", 14, 0); mk(p + "_celebrate", 8, -1);
+    });
+    mk("cacko_dive", 14, 0); mk("cacko_catch", 12, 0);
+    // ball texture
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 1); g.fillCircle(8, 8, 8); g.fillStyle(0x1c2230, 1); g.fillCircle(6, 6, 2.4); g.fillCircle(11, 9, 2.4);
+    g.lineStyle(1.5, 0x333344, 1); g.strokeCircle(8, 8, 8); g.generateTexture("ball", 16, 16); g.destroy();
+    this.scene.start("Match", { awayId: this.awayId });
+  }
+}
+
+/* ----------------------------- Match ----------------------------- */
+class Match extends Phaser.Scene {
+  constructor() { super("Match"); }
+
+  create(data) {
+    this.awayId = data.awayId;
+    this.away = TEAMS.find((t) => t.id === this.awayId);
+    this.score = { home: 0, away: 0 };
+    this.physics.world.setBounds(0, 0, PITCH.w, PITCH.h);
+
+    this.drawPitch();
+    this.players = [];
+    this.home = []; this.away_ = [];
+
+    // home (kids)
+    KIDS.outfield.forEach((k) => this.addPlayer(KID_PREFIX[k.name], k.role, HOME_POS[k.name], "home", { name: k.name, captain: k.captain, size: k.size }));
+    this.addPlayer("cacko", "GK", HOME_POS.Cacko, "home", { name: "Cacko", gk: true, size: 1.3 });
+    // away
+    AWAY_POS.forEach((pos, i) => this.addPlayer(this.awayId, AWAY_ROLES[i], pos, "away", { gk: AWAY_ROLES[i] === "GK" }));
+
+    // ball
+    this.ball = this.physics.add.sprite(PITCH.cx, PITCH.h / 2, "ball");
+    this.ball.body.setCircle(7).setBounce(0.55).setDrag(55).setCollideWorldBounds(true);
+    this.ball.body.setMaxVelocity(720);
+    this.ball.setDepth(PITCH.h / 2);
+    this.owner = null; this.ownerHold = 0; this.justScored = 0;
+
+    // separation between players
+    this.physics.add.collider(this.players, this.players);
+
+    // controlled
+    this.controlled = this.nearestHome(this.ball.x, this.ball.y);
+    this.switchLock = 0;
+
+    // camera
+    this.cam = this.cameras.main;
+    this.cam.setBounds(0, 0, PITCH.w, PITCH.h);
+    this.camTarget = new Phaser.Math.Vector2(this.ball.x, this.ball.y);
+    this.cam.centerOn(this.ball.x, this.ball.y);
+    this.cam.setZoom(1.65);
+
+    // input
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys = this.input.keyboard.addKeys({ sprint: "E", shoot: "D", pass: "S", lob: "A", sw: "SPACE" });
+    this.input.keyboard.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,A,S,D,E");   // don't scroll the page
+
+    this.buildHUD();
+    this.clock = 120;
+    this.kickoff("home");
+  }
+
+  /* ---------- setup helpers ---------- */
+  addPlayer(prefix, role, frac, side, meta) {
+    const p = this.physics.add.sprite(FX(frac[0]), FY(frac[1]), prefix + "_idle");
+    p.setOrigin(0.5, 0.82).setScale(0.92 * (meta.size || 1));
+    p.body.setCircle(13, 19, 43).setDrag(DRAG, DRAG).setMaxVelocity(MAXV).setCollideWorldBounds(true);
+    p.prefix = prefix; p.role = role; p.side = side; p.isGK = !!meta.gk; p.captain = !!meta.captain;
+    p.homeX = p.x; p.homeY = p.y; p.faceX = 0; p.faceY = side === "home" ? -1 : 1;
+    p.actT = 0; p.act = null; p.diveT = 0; p.celebrateT = 0; p.stealCd = 0; p.kickCd = 0; p.sprinting = false;
+    this.players.push(p);
+    (side === "home" ? this.home : this.away_).push(p);
+    return p;
+  }
+
+  drawPitch() {
+    // far stadium / crowd (the painted background) behind the top goal
+    if (this.textures.exists("bg")) { const im = this.add.image(PITCH.cx, 0, "bg").setOrigin(0.5, 0).setDisplaySize(PITCH.w, 260).setDepth(-100); }
+    const g = this.add.graphics().setDepth(-50);
+    // grass + mown bands
+    g.fillStyle(0x256b3d, 1); g.fillRect(0, 0, PITCH.w, PITCH.h);
+    for (let i = 0; i < 16; i++) { g.fillStyle(i % 2 ? 0x2f8a4f : 0x2a8049, 1); g.fillRect(0, PITCH.mg + i * (PITCH.fh / 16), PITCH.w, PITCH.fh / 16); }
+    g.lineStyle(3, 0xffffff, 0.8);
+    g.strokeRect(PITCH.mg, PITCH.mg, PITCH.fw, PITCH.fh);                 // boundary
+    g.lineBetween(PITCH.mg, PITCH.h / 2, PITCH.w - PITCH.mg, PITCH.h / 2); // halfway
+    g.strokeCircle(PITCH.cx, PITCH.h / 2, 90);                            // centre circle
+    // boxes + goals (top & bottom)
+    [GOAL_TOP, GOAL_BOT].forEach((gy, s) => {
+      const dir = s === 0 ? 1 : -1;
+      g.strokeRect(PITCH.cx - 150, s === 0 ? PITCH.mg : PITCH.h - PITCH.mg - 140, 300, 140);
+      g.lineStyle(5, 0xf4f7ff, 1);
+      g.lineBetween(PITCH.cx - PITCH.mouth / 2, gy, PITCH.cx + PITCH.mouth / 2, gy);
+      g.lineStyle(3, 0xffffff, 0.8);
+    });
+  }
+
+  buildHUD() {
+    const col = (h) => Phaser.Display.Color.HexStringToColor(h).color;
+    this.add.rectangle(GW / 2, 22, 360, 36, 0x0a0e16, 0.85).setStrokeStyle(2, 0xffffff, 0.12).setScrollFactor(0).setDepth(1000);
+    this.add.rectangle(GW / 2 - 150, 22, 22, 22, col(KIDS.kit.shirt)).setScrollFactor(0).setDepth(1001);
+    this.add.rectangle(GW / 2 + 150, 22, 22, 22, col(this.away.kit.shirt)).setScrollFactor(0).setDepth(1001);
+    this.scoreText = this.add.text(GW / 2, 22, "0 - 0", { fontFamily: "Press Start 2P", fontSize: "18px", color: "#ffe85a" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    this.add.text(GW / 2 - 132, 22, "KORNA", { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1001);
+    this.add.text(GW / 2 + 132, 22, this.away.name.toUpperCase().slice(0, 8), { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1001);
+    this.bannerText = this.add.text(GW / 2, GH / 2 - 30, "", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffd23a" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    this.hint = this.add.text(GW / 2, GH - 14, "MOVE arrows  SPRINT e  SHOOT d  PASS s  SWITCH space", { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#9fb0c8" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    // minimap
+    this.mini = this.add.graphics().setScrollFactor(0).setDepth(1001);
+  }
+
+  banner(t, dur) { this.bannerText.setText(t); this.bannerT = dur; }
+
+  kickoff(side) {
+    this.players.forEach((p) => { p.setPosition(p.homeX, p.homeY); p.body.setVelocity(0, 0); p.celebrateT = 0; });
+    this.ball.setPosition(PITCH.cx, PITCH.h / 2); this.ball.body.setVelocity(0, 0);
+    const kicker = (side === "home" ? this.home : this.away_).find((p) => p.role === "MID") || this.home[0];
+    kicker.setPosition(PITCH.cx, PITCH.h / 2 + (side === "home" ? 26 : -26));
+    this.owner = kicker; this.ownerHold = 0;
+    this.controlled = side === "home" ? kicker : this.nearestHome(this.ball.x, this.ball.y);
+    this.justScored = 0;
+    this.banner("KICK OFF", 1.2);
+  }
+
+  /* ---------- helpers ---------- */
+  nearestHome(x, y) {
+    let best = null, bd = 1e9; for (const p of this.home) { if (p.isGK) continue; const d = Phaser.Math.Distance.Squared(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } } return best;
+  }
+  nearestOf(list, x, y, skipGK) { let best = null, bd = 1e9; for (const p of list) { if (skipGK && p.isGK) continue; const d = Phaser.Math.Distance.Squared(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } } return best; }
+  steer(p, tx, ty, sprint) {
+    const dx = tx - p.x, dy = ty - p.y, m = Math.hypot(dx, dy);
+    if (m < 6) { p.body.setAcceleration(0, 0); return; }
+    p.body.setMaxVelocity(sprint && m > 80 ? SPRINTV : MAXV); p.sprinting = sprint && m > 80;
+    p.body.setAcceleration(dx / m * ACC, dy / m * ACC);
+  }
+
+  /* ---------- main loop ---------- */
+  update(time, delta) {
+    const dt = Math.min(0.05, delta / 1000);
+    if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.bannerText.setText(""); }
+    if (this.justScored > 0) this.justScored -= dt;
+    if (this.switchLock > 0) this.switchLock -= dt;
+    for (const p of this.players) { if (p.actT > 0) p.actT -= dt; if (p.diveT > 0) p.diveT -= dt; if (p.stealCd > 0) p.stealCd -= dt; if (p.celebrateT > 0) p.celebrateT -= dt; if (p.kickCd > 0) p.kickCd -= dt; }
+
+    this.updateControlled();
+    this.handleInput(dt);
+    this.updateAI();
+    this.updatePossession(dt);
+    this.players.forEach((p) => this.animate(p));
+    this.ball.setDepth(this.ball.y);
+    this.checkGoals();
+    this.updateCamera(dt);
+    this.updateMini();
+  }
+
+  updateControlled() {
+    if (this.owner && this.owner.side === "home" && !this.owner.isGK) { this.controlled = this.owner; return; }
+    if (this.switchLock > 0) return;
+    this.controlled = this.nearestHome(this.ball.x, this.ball.y) || this.controlled;
+  }
+
+  handleInput(dt) {
+    const c = this.controlled; if (!c) return;
+    let ax = 0, ay = 0;
+    if (this.cursors.left.isDown) ax = -1; else if (this.cursors.right.isDown) ax = 1;
+    if (this.cursors.up.isDown) ay = -1; else if (this.cursors.down.isDown) ay = 1;
+    const m = Math.hypot(ax, ay) || 1;
+    const sprint = this.keys.sprint.isDown;
+    c.body.setMaxVelocity(sprint ? SPRINTV : MAXV); c.sprinting = sprint;
+    c.body.setAcceleration(ax / m * ACC, ay / m * ACC);
+    if (ax || ay) { c.faceX = ax / m; c.faceY = ay / m; }
+
+    const owns = this.owner === c;
+    if (Phaser.Input.Keyboard.JustDown(this.keys.sw) && !owns) this.switchPlayer();
+    if (Phaser.Input.Keyboard.JustDown(this.keys.shoot) && owns) this.shoot(c);
+    if (Phaser.Input.Keyboard.JustDown(this.keys.pass)) { if (owns) this.passBall(c); }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.lob) && !owns) this.slide(c);
+  }
+
+  switchPlayer() {
+    const out = this.home.filter((p) => !p.isGK);
+    let i = out.indexOf(this.controlled);
+    this.controlled = out[(i + 1) % out.length]; this.switchLock = 0.8;
+  }
+
+  shoot(p) {
+    this.owner = null; this.ownerHold = 0;
+    const gy = p.side === "home" ? GOAL_TOP : GOAL_BOT;
+    const aimX = Phaser.Math.Clamp(p.x + Phaser.Math.Between(-40, 40), PITCH.cx - PITCH.mouth / 2 + 16, PITCH.cx + PITCH.mouth / 2 - 16);
+    const a = Math.atan2(gy - p.y, aimX - p.x);
+    const pw = 470 * (p.pow || 1);
+    this.ball.body.setVelocity(Math.cos(a) * pw, Math.sin(a) * pw);
+    p.actT = 0.25; p.act = "kick"; p.kickCd = 0.25;
+  }
+  passBall(p) {
+    const mates = (p.side === "home" ? this.home : this.away_).filter((m) => m !== p && !m.isGK);
+    const fwd = p.side === "home" ? -1 : 1;
+    let best = null, bs = -1e9;
+    for (const m of mates) { const ahead = (m.y - p.y) * fwd; const d = Phaser.Math.Distance.Between(p.x, p.y, m.x, m.y); if (d < 40 || d > 520) continue; const sc = ahead * 1.1 - d * 0.1; if (sc > bs) { bs = sc; best = m; } }
+    this.owner = null; this.ownerHold = 0;
+    const tgt = best || { x: p.x + p.faceX * 200, y: p.y + p.faceY * 200 };
+    const a = Math.atan2(tgt.y - p.y, tgt.x - p.x);
+    const pw = Phaser.Math.Clamp(Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y) * 2.2, 240, 540);
+    this.ball.body.setVelocity(Math.cos(a) * pw, Math.sin(a) * pw);
+    p.actT = 0.25; p.act = "pass";
+  }
+  slide(p) {
+    p.act = "tackle"; p.actT = 0.35; p.diveT = 0;
+    const sp = 360; p.body.setVelocity(p.faceX * sp, p.faceY * sp);
+  }
+
+  updateAI() {
+    const ball = this.ball, owner = this.owner;
+    for (const side of [this.home, this.away_]) {
+      const isHome = side === this.home;
+      const attackY = isHome ? GOAL_TOP : GOAL_BOT;
+      const fwd = isHome ? -1 : 1;
+      for (const p of side) {
+        if (p === this.controlled) continue;
+        if (p.isGK) { this.gkAI(p); continue; }
+        if (p === owner) { this.carrierAI(p, attackY, fwd); continue; }
+        const teammate = owner && owner.side === p.side;
+        if (teammate) {
+          // support: forwards push up, others hold shape + drift to ball
+          if (p.role === "FWD" || p.role === "ST") this.steer(p, Phaser.Math.Clamp(ball.x + Phaser.Math.Between(-40, 40), PITCH.mg, PITCH.w - PITCH.mg), ball.y + fwd * 160, false);
+          else this.steer(p, Phaser.Math.Linear(p.homeX, ball.x, 0.4), Phaser.Math.Linear(p.homeY, ball.y, 0.35), false);
+        } else if (owner) {
+          // defend: nearest presses, others hold goalside
+          const near = this.nearestOf(side, owner.x, owner.y, true);
+          if (p === near) this.steer(p, owner.x, owner.y + fwd * -6, true);
+          else this.steer(p, Phaser.Math.Linear(p.homeX, ball.x, 0.2), Phaser.Math.Linear(p.homeY, ball.y, 0.25), false);
+        } else {
+          const near = this.nearestOf(side, ball.x, ball.y, true);
+          if (p === near) this.steer(p, ball.x + ball.body.velocity.x * 0.12, ball.y + ball.body.velocity.y * 0.12, true);
+          else this.steer(p, Phaser.Math.Linear(p.homeX, ball.x, 0.3), Phaser.Math.Linear(p.homeY, ball.y, 0.3), false);
+        }
+      }
+    }
+  }
+  carrierAI(p, attackY, fwd) {
+    const toGoal = Math.abs(attackY - p.y);
+    if (toGoal < 360 && (p.kickCd || 0) <= 0 && Math.random() < 0.03) { this.shoot(p); return; }
+    if (Math.random() < 0.02) { this.passBall(p); return; }
+    this.steer(p, PITCH.cx + (p.x - PITCH.cx) * 0.7, attackY, true);
+  }
+  gkAI(p) {
+    const gy = p.side === "home" ? GOAL_BOT - 18 : GOAL_TOP + 18;   // own goal
+    this.steer(p, Phaser.Math.Clamp(this.ball.x, PITCH.cx - PITCH.mouth / 2, PITCH.cx + PITCH.mouth / 2), gy, false);
+  }
+
+  updatePossession(dt) {
+    const b = this.ball;
+    if (this.owner) {
+      const o = this.owner; this.ownerHold += dt;
+      const dx = o.faceX, dy = o.faceY, m = Math.hypot(dx, dy) || 1;
+      const tx = o.x + dx / m * 20, ty = o.y + dy / m * 20 - 6;
+      b.setPosition(Phaser.Math.Linear(b.x, tx, 0.5), Phaser.Math.Linear(b.y, ty, 0.5));
+      b.body.setVelocity(o.body.velocity.x, o.body.velocity.y);
+      // steal
+      if (this.ownerHold > 0.15) for (const p of this.players) {
+        if (p.side === o.side || p.stealCd > 0) continue;
+        if (Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) < 26) {
+          const sliding = p.act === "tackle" && p.actT > 0;
+          const rate = (sliding ? 3.2 : 1.1) * Phaser.Math.Clamp(0.4 + ((p.def || 1) - (o.skl || 1)) * 0.5, 0.2, 1.4);
+          if (Math.random() < rate * dt) { this.owner = p; this.ownerHold = 0; o.stealCd = 0.6; break; }
+        }
+      }
+    } else if (this.justScored <= 0) {
+      const spd = b.body.speed;
+      for (const p of this.players) {
+        if (p.kickCd > 0) continue;
+        const reach = p.isGK ? 34 : 24;
+        if (Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 700 : 290)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
+      }
+    }
+  }
+
+  checkGoals() {
+    if (this.justScored > 0) return;
+    const b = this.ball;
+    if (b.y < GOAL_TOP + 6 && inMouth(b.x)) this.goal("home");       // home attacks top
+    else if (b.y > GOAL_BOT - 6 && inMouth(b.x)) this.goal("away");
+  }
+  goal(side) {
+    this.justScored = 2.4;
+    if (side === "home") this.score.home++; else this.score.away++;
+    this.scoreText.setText(this.score.home + " - " + this.score.away);
+    this.banner("GOAL!", 2.2);
+    this.cam.shake(220, 0.006);
+    const team = side === "home" ? this.home : this.away_;
+    team.forEach((p) => { if (!p.isGK) p.celebrateT = 1.8; });
+    this.owner = null;
+    this.time.delayedCall(2200, () => this.kickoff(side === "home" ? "away" : "home"));
+  }
+
+  animate(p) {
+    const k = (n) => p.prefix + "_" + n, has = (n) => this.anims.exists(p.prefix + "_" + n);
+    if (p.celebrateT > 0 && has("celebrate")) p.play({ key: k("celebrate"), repeat: -1 }, true);
+    else if (p.isGK && p.diveT > 0 && has("dive")) p.play(k("dive"), true);
+    else if (p.actT > 0 && p.act && has(p.act)) p.play(k(p.act), true);
+    else {
+      const sp = p.body.speed;
+      if (sp > SPRINTV * 0.72 && p.sprinting && has("sprint")) p.play({ key: k("sprint"), repeat: -1 }, true);
+      else if (sp > 18) p.play({ key: k("run"), repeat: -1 }, true);
+      else p.play({ key: k("idle"), repeat: -1 }, true);
+    }
+    if (Math.abs(p.body.velocity.x) > 8) p.setFlipX(p.body.velocity.x < 0);
+    p.setDepth(p.y);
+  }
+
+  updateCamera(dt) {
+    const tx = this.ball.x, ty = this.ball.y;
+    this.camTarget.x = Phaser.Math.Linear(this.camTarget.x, tx, 0.08);
+    this.camTarget.y = Phaser.Math.Linear(this.camTarget.y, ty, 0.08);
+    this.cam.centerOn(this.camTarget.x, this.camTarget.y);
+  }
+
+  updateMini() {
+    const mw = 120, mh = 80, mx = GW - mw - 12, my = GH - mh - 30;
+    const g = this.mini; g.clear();
+    g.fillStyle(0x0a0e16, 0.78); g.fillRoundedRect(mx - 3, my - 3, mw + 6, mh + 6, 5);
+    g.fillStyle(0x1f6d3c, 1); g.fillRect(mx, my, mw, mh);
+    g.lineStyle(1, 0xffffff, 0.4); g.strokeRect(mx, my, mw, mh); g.lineBetween(mx, my + mh / 2, mx + mw, my + mh / 2);
+    const M = (x, y) => [mx + (x - PITCH.mg) / PITCH.fw * mw, my + (y - PITCH.mg) / PITCH.fh * mh];
+    for (const p of this.players) { const s = M(p.x, p.y); g.fillStyle(p.isGK ? 0xffffff : Phaser.Display.Color.HexStringToColor(p.side === "home" ? KIDS.kit.shirt : this.away.kit.shirt).color, 1); g.fillCircle(s[0], s[1], 2.2); }
+    const bs = M(this.ball.x, this.ball.y); g.fillStyle(0xffe85a, 1); g.fillCircle(bs[0], bs[1], 2);
+  }
+}
+
+/* ----------------------------- boot ----------------------------- */
+window.KGAME = new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: "stage",
+  width: GW, height: GH,
+  backgroundColor: "#0b0e16",
+  pixelArt: true,
+  physics: { default: "arcade", arcade: { debug: false } },
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [Preload, Match],
+});
