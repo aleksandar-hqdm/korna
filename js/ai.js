@@ -50,8 +50,8 @@ const AI = (() => {
       tx = lineX + atkSign(p.side) * out;
       ty = clamp(w.ball.y, CFG.goalTop - 4, CFG.goalBot + 4);
     }
-    // imperfect positioning: the keeper drifts, so well-placed corner shots can beat it
-    ty = clamp(ty + Math.sin(performance.now() / 620 + (p.num || 1) * 2) * CFG.goalMouth * 0.2, CFG.goalTop - 6, CFG.goalBot + 6);
+    // imperfect positioning: the keeper drifts a little, so well-placed corner shots can still beat it
+    ty = clamp(ty + Math.sin(performance.now() / 720 + (p.num || 1) * 2) * CFG.goalMouth * 0.12, CFG.goalTop - 6, CFG.goalBot + 6);
     driveTo(p, tx, ty, ballDist < 90);
 
     // anticipate a fast shot: lunge toward the ball's vertical line
@@ -71,8 +71,8 @@ const AI = (() => {
     const range = CFG.pw * 0.46;
     if (toGoal < range && held > 0.12 && p.kickCd <= 0) {
       const laneClear = !opp || d > 34;
-      const wantShoot = laneClear ? chance(0.04 + 0.012 * w.diff) : chance(0.02 * w.diff);
-      if (wantShoot || toGoal < CFG.pw * 0.2) { shoot(p, w); return; }
+      const wantShoot = laneClear ? chance(0.026 + 0.009 * w.diff) : chance(0.011 * w.diff);
+      if (wantShoot || toGoal < CFG.pw * 0.12) { shoot(p, w); return; }
     }
 
     // pass if pressured or a clearly better option exists
@@ -98,10 +98,10 @@ const AI = (() => {
     const gx = tgtGoalX(p.side);
     const gk = w.opponents.find((o) => o.keeper);
     let aimY = gk ? (gk.y < CFG.midY ? CFG.goalBot - 18 : CFG.goalTop + 18) : CFG.midY;  // open corner
-    const scatter = (CFG.goalMouth * 0.42) * (0.7 / p.skl) * (1.1 - w.diff * 0.1);
-    aimY = clamp(aimY + rnd(-1, 1) * scatter, CFG.goalTop + 10, CFG.goalBot - 10);
+    const scatter = (CFG.goalMouth * 0.6) * (0.78 / p.skl) * (1.15 - w.diff * 0.1);       // less accurate
+    aimY = clamp(aimY + rnd(-1, 1) * scatter, CFG.goalTop + 8, CFG.goalBot - 8);
     const ang = Math.atan2(aimY - w.ball.y, gx - w.ball.x);
-    const power = lerp(CFG.shootMax * 0.78, CFG.shootMax, Math.min(1, 0.4 + 0.12 * w.diff)) * p.pow;  // hard enough to score
+    const power = lerp(CFG.shootMax * 0.6, CFG.shootMax * 0.92, Math.min(1, 0.35 + 0.13 * w.diff)) * p.pow;  // mostly catchable; only the best beat the keeper
     const lift = chance(0.2) ? rnd(110, 200) : rnd(0, 50);
     w.ball.shoot(p, ang, power, lift);
     Sound.kick();
@@ -125,6 +125,7 @@ const AI = (() => {
     const lead = 0.16;
     const tx = mate.x + mate.vx * lead, ty = mate.y + mate.vy * lead;
     w.ball.passTo(p, tx, ty, CFG.passPower);
+    p.act = "pass"; p.actT = 0.32;
     Sound.pass();
   }
 

@@ -45,6 +45,9 @@ const Assets = (() => {
     }
   }
 
+  // standard animation set probed per character (by sprite filename prefix)
+  const ANIM_FPS = { idle: 3, run: 12, kick: 14, sprint: 13, pass: 16, tackle: 13, celebrate: 8, dive: 13, catch: 10, lob: 16 };
+
   async function load(base = "assets/") {
     try {
       const res = await fetch(base + "manifest.json", { cache: "no-cache" });
@@ -56,10 +59,8 @@ const Assets = (() => {
         const def = manifest.characters[name];
         const set = new SpriteSet();
         sets[name] = set;
-        if (def.anims) for (const an in def.anims) {
-          const a = def.anims[an];
-          jobs.push(loadImage(base + a.sheet).then((img) => set.add(an, img, a.frames, a.fps)));
-        }
+        const prefix = def.portrait ? def.portrait.replace(/.*\//, "").replace(/\.png$/i, "") : name.toLowerCase();
+        for (const an in ANIM_FPS) jobs.push(loadImage(base + "sprites/" + prefix + "_" + an + ".png").then((img) => set.add(an, img, 4, ANIM_FPS[an])));
         if (def.portrait) jobs.push(loadImage(base + def.portrait).then((img) => { faces[name] = img; }));
       }
       // per-team painted backgrounds (optional)

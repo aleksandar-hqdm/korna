@@ -175,6 +175,7 @@
       if (best) { const a = Math.atan2(best.y - p.y, best.x - p.x); G.ball.shoot(p, a, clamp(dist(p.x, p.y, best.x, best.y) * 2.0, 280, 600), 260); }
       else G.ball.shoot(p, p.facing, 380, 260);
     }
+    p.act = "lob"; p.actT = 0.32;
     Sound.pass();
   }
 
@@ -222,6 +223,7 @@
       // no good option: drive it forward
       G.ball.shoot(p, p.facing, CFG.passPower * 0.9, 40);
     }
+    p.act = "pass"; p.actT = 0.32;
     Sound.pass();
   }
 

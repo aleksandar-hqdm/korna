@@ -57,14 +57,18 @@ const Sound = (() => {
     src.start(t0);
   }
 
+  // throttle so rapid scrappy play doesn't spam the same sound into noise
+  const last = {};
+  const thr = (k, ms) => { const t = performance.now(); if (last[k] && t - last[k] < ms) return false; last[k] = t; return true; };
+
   return {
     unlock,
     setEnabled(v) { enabled = v; },
-    kick()   { noise(0.07, 0.5, 200, 2600); tone(150, 0.12, "triangle", 0.4, 70); },
-    pass()   { tone(420, 0.08, "triangle", 0.22, 300); },
-    wall()   { tone(180, 0.05, "square", 0.12, 120); },
+    kick()   { if (!thr("kick", 70)) return; noise(0.06, 0.32, 200, 2400); tone(150, 0.1, "triangle", 0.28, 70); },
+    pass()   { if (!thr("pass", 70)) return; tone(420, 0.08, "triangle", 0.17, 300); },
+    wall()   { if (!thr("wall", 95)) return; tone(180, 0.05, "square", 0.08, 120); },
     save()   { noise(0.09, 0.4, 300, 2000); tone(220, 0.1, "sine", 0.25, 140); },
-    steal()  { tone(700, 0.06, "square", 0.18, 400); noise(0.04, 0.2, 800, 4000); },
+    steal()  { if (!thr("steal", 110)) return; tone(700, 0.06, "square", 0.14, 400); noise(0.04, 0.16, 800, 4000); },
     post()   { tone(900, 0.18, "sine", 0.3, 700); },
     ui()     { tone(560, 0.07, "square", 0.2, 760); },
     uiBack() { tone(360, 0.07, "square", 0.18, 240); },

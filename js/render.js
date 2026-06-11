@@ -93,7 +93,7 @@ const Render = (() => {
     for (let i = 0; i < 8; i++) { const rx = L + Math.random() * pw, ry = T + Math.random() * ph, rr = 70 + Math.random() * 150; const rg = x.createRadialGradient(rx, ry, 4, rx, ry, rr); rg.addColorStop(0, Math.random() < 0.5 ? "rgba(210,255,180,0.05)" : "rgba(0,25,0,0.06)"); rg.addColorStop(1, "rgba(0,0,0,0)"); x.fillStyle = rg; x.fillRect(L, T, pw, ph); }
     // individual grass blades
     const greens = ["#2c8a50", "#3aa05f", "#288046", "#46b06a", "#1f6d3c", "#3f9c5c"];
-    x.globalAlpha = 0.5; for (let i = 0; i < 4600; i++) { x.fillStyle = greens[(Math.random() * greens.length) | 0]; x.fillRect(L + Math.random() * pw, T + Math.random() * ph, 1, 2); } x.globalAlpha = 1;
+    x.globalAlpha = 0.38; for (let i = 0; i < 2300; i++) { x.fillStyle = greens[(Math.random() * greens.length) | 0]; x.fillRect(L + Math.random() * pw, T + Math.random() * ph, 1, 2); } x.globalAlpha = 1;
 
     x.strokeStyle = "rgba(255,255,255,0.82)"; x.lineWidth = 3;
     x.strokeRect(L + 5, T + 5, pw - 10, ph - 10);
@@ -265,7 +265,12 @@ const Render = (() => {
   function billboard(ctx, p, controlled, teamColor, set, sx, sy, sc) {
     const t = performance.now() / 1000 + (p.animPhase || 0) * 0.05;
     let anim = "idle";
-    if (p.kickCd > 0.12 && set.has("kick")) anim = "kick";
+    if (p.celebrate > 0 && set.has("celebrate")) anim = "celebrate";
+    else if (p.slideT > 0 && set.has("tackle")) anim = "tackle";
+    else if (p.keeper && p.lunge > 0 && set.has("dive")) anim = "dive";
+    else if (p.actT > 0 && p.act && set.has(p.act)) anim = p.act;          // pass / lob just played
+    else if (p.kickCd > 0.12 && set.has("kick")) anim = "kick";
+    else if (p.sprint && p.speedNorm > 0.55 && set.has("sprint")) anim = "sprint";
     else if (p.speedNorm > 0.16 && set.has("run")) anim = "run";
     const fr = set.frame(anim, t);
     if (!fr) return;
@@ -353,7 +358,7 @@ const Render = (() => {
 
   /* ---------- CRT overlay ---------- */
   function crt(ctx) {
-    ctx.save(); ctx.globalAlpha = 0.06; ctx.fillStyle = "#000";
+    ctx.save(); ctx.globalAlpha = 0.04; ctx.fillStyle = "#000";
     for (let y = 0; y < CFG.H; y += 3) ctx.fillRect(0, y, CFG.W, 1);
     ctx.restore();
     const vg = ctx.createRadialGradient(CFG.midX, CFG.midY, CFG.H * 0.5, CFG.midX, CFG.midY, CFG.W * 0.72);

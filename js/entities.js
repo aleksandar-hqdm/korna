@@ -30,6 +30,7 @@ class Player {
     this.heat = 0; this.fire = 0; this.justFired = false; this.trail = [];
     this.user = false;            // true only for the kid the human controls
     this.pressT = 0;              // "follow"/second-defender press timer (AI)
+    this.act = null; this.actT = 0; // transient action animation (pass/lob)
     const m = this.mult || {};
     this.spd = m.spd || 1; this.acc = m.acc || 1;
     this.pow = m.pow || 1; this.skl = m.skl || 1;
@@ -50,6 +51,7 @@ class Player {
     if (this.lunge > 0) this.lunge -= dt;
     if (this.jukeCd > 0) this.jukeCd -= dt;
     if (this.pressT > 0) this.pressT -= dt;
+    if (this.actT > 0) this.actT -= dt;
     if (this.fire > 0) this.fire -= dt;
     if (this.heat > 0) this.heat = Math.max(0, this.heat - CFG.heatDecay * dt);
     if (this.heat >= 1 && this.fire <= 0) { this.fire = CFG.fireTime; this.heat = 0; this.justFired = true; }
