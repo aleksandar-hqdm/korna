@@ -22,32 +22,26 @@
     banner: 0, bannerText: "", bannerSub: "",
     countdown: 0,
     celebrateTimer: 0,
-    cam: { x: CFG.midX, y: CFG.midY, z: 2.45 },
+    cam: { fwd: CFG.midX, lat: CFG.midY },   // forward (goal-to-goal) + lateral focus
     shake: 0, freeze: 0,
     cardFlash: 0, cardColor: "#ffd23a", subDone: false,
     t: 0,
   };
 
   /* ----------------------------- camera ----------------------------- */
-  function camBounds() {
-    const z = G.cam.z;
-    return { hw: CFG.W / 2 / z, hh: CFG.H / 2 / (z * CFG.tilt) };  // tilt squashes the vertical view
-  }
   function snapCamera() {
-    const { hw, hh } = camBounds();
-    G.cam.x = clamp(G.ball.x, hw, CFG.W - hw);
-    G.cam.y = clamp(G.ball.y, hh, CFG.H - hh);
+    G.cam.fwd = clamp(G.ball.x, CFG.left + 20, CFG.right - 20);
+    G.cam.lat = clamp(G.ball.y, CFG.top + 30, CFG.bottom - 30);
   }
   function updateCamera(dt) {
-    const { hw, hh } = camBounds();
-    // track the ball (lead a touch toward the controlled kid), tight but smooth
-    let tx = G.ball.x, ty = G.ball.y;
-    if (G.controlled) { tx = lerp(G.ball.x, G.controlled.x, 0.3); ty = lerp(G.ball.y, G.controlled.y, 0.3); }
-    tx = clamp(tx, hw, CFG.W - hw); ty = clamp(ty, hh, CFG.H - hh);
-    // gentle follow with a small deadzone so the camera doesn't jitter on dribbles
-    const dx = tx - G.cam.x, dy = ty - G.cam.y, k = Math.min(1, 6 * dt);
-    if (Math.abs(dx) > 5) G.cam.x += dx * k;
-    if (Math.abs(dy) > 5) G.cam.y += dy * k;
+    // follow the ball up/down the pitch (fwd) and across (lat), lead toward the controlled kid
+    let tf = G.ball.x, tl = G.ball.y;
+    if (G.controlled) { tf = lerp(G.ball.x, G.controlled.x, 0.3); tl = lerp(G.ball.y, G.controlled.y, 0.3); }
+    tf = clamp(tf, CFG.left + 20, CFG.right - 20);
+    tl = clamp(tl, CFG.top + 30, CFG.bottom - 30);
+    const k = Math.min(1, 6 * dt);
+    if (Math.abs(tf - G.cam.fwd) > 4) G.cam.fwd += (tf - G.cam.fwd) * k;
+    if (Math.abs(tl - G.cam.lat) > 4) G.cam.lat += (tl - G.cam.lat) * k;
   }
 
   /* ----------------------------- setup ----------------------------- */

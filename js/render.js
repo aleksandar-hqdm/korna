@@ -154,31 +154,88 @@ const Render = (() => {
   }
 
   /* ---------- action world (camera) ---------- */
+  // 3/4 perspective: gameplay forward axis = world x (home attacks +x = far goal = up screen);
+  // width = world y. Camera sits BACK behind its forward focus and looks up the pitch.
+  const PV = { F: 314, CAMH: 172, BACK: 160, HORIZON: 90, DZMIN: 34, FRONT: 470, POST: 44 };
+
+  function pline(ctx, a, b, color, w) { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+
   function world(ctx, G) {
-    if (!pitch) buildPitch();
-    const cam = G.cam, z = cam.z, TY = CFG.tilt;
-    const sh = G.shake || 0;
+    const cam = G.cam, sh = G.shake || 0;
     const ox = sh ? (Math.random() * 2 - 1) * sh : 0, oy = sh ? (Math.random() * 2 - 1) * sh : 0;
-    const CX = CFG.W / 2 + ox, CY = CFG.H / 2 + oy;
-    // ground plane squashed vertically -> 3/4 tilt
-    ctx.save();
-    ctx.translate(CX, CY); ctx.scale(z, z * TY); ctx.translate(-cam.x, -cam.y);
-    ctx.drawImage(pitch, 0, 0);
-    ctx.restore();
-    // world -> screen; entities drawn UPRIGHT on the tilted ground, scaled by depth
-    const proj = (wx, wy) => [CX + (wx - cam.x) * z, CY + (wy - cam.y) * z * TY];
-    // depth scale tied to FIELD position (not camera) so players don't pulse in size
-    const depthOf = (wy) => clamp(0.94 + ((wy - CFG.top) / CFG.ph) * 0.14, 0.94, 1.08);
-    const all = G.players.slice().sort((a, b) => a.y - b.y);
+    const CX = CFG.W / 2 + ox;
+    const proj = (wx, wy) => { let dz = (wx - cam.fwd) + PV.BACK; if (dz < PV.DZMIN) dz = PV.DZMIN; const sc = PV.F / dz; return [CX + (wy - cam.lat) * sc, PV.HORIZON + oy + PV.CAMH * sc, sc]; };
+
+    stadiumBack(ctx, G);
+    field(ctx, G, proj, cam);
+
+    const all = G.players.slice().sort((a, b) => b.x - a.x);   // far (large x) first
     for (const p of all) {
       const s = proj(p.x, p.y);
       const tc = p.side === "home" ? KIDS.kit.shirt : G.away.kit.shirt;
-      drawPlayer(ctx, p, p === G.controlled, tc, s[0], s[1], z * depthOf(p.y), proj);
+      drawPlayer(ctx, p, p === G.controlled, tc, s[0], s[1], s[2], proj);
     }
     const b = proj(G.ball.x, G.ball.y);
-    drawBall(ctx, G.ball, b[0], b[1], z);
-    for (const pt of G.particles) { const s = proj(pt.x, pt.y); ctx.globalAlpha = clamp(pt.life, 0, 1); ctx.fillStyle = pt.color; ctx.fillRect(s[0], s[1], pt.s, pt.s); }
+    drawBall(ctx, G.ball, b[0], b[1], b[2]);
+    for (const pt of G.particles) { const s = proj(pt.x, pt.y); ctx.globalAlpha = clamp(pt.life, 0, 1); ctx.fillStyle = pt.color; ctx.fillRect(s[0], s[1], pt.s * Math.max(0.5, s[2]), pt.s * Math.max(0.5, s[2])); }
     ctx.globalAlpha = 1;
+  }
+
+  function stadiumBack(ctx, G) {
+    ctx.fillStyle = "#0a0d14"; ctx.fillRect(0, 0, CFG.W, CFG.H);
+    const bg = (G.away && typeof Assets !== "undefined") ? Assets.bg(G.away.id) : null;
+    const h = PV.HORIZON + 150;
+    if (bg) { ctx.imageSmoothingEnabled = false; ctx.drawImage(bg, 0, 0, CFG.W, h); ctx.imageSmoothingEnabled = true; }
+    else { const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#243042"); g.addColorStop(1, "#16202c"); ctx.fillStyle = g; ctx.fillRect(0, 0, CFG.W, h); }
+    ctx.fillStyle = "rgba(0,0,0,0.18)"; ctx.fillRect(0, 0, CFG.W, h);
+  }
+
+  function field(ctx, G, proj, cam) {
+    const farFx = Math.min(CFG.right, cam.fwd + PV.FRONT), nearFx = Math.max(CFG.left, cam.fwd - 90);
+    const steps = 22;
+    for (let i = 0; i < steps; i++) {
+      const fx0 = lerp(farFx, nearFx, i / steps), fx1 = lerp(farFx, nearFx, (i + 1) / steps);
+      const a = proj(fx0, CFG.top), b = proj(fx0, CFG.bottom), c = proj(fx1, CFG.bottom), d = proj(fx1, CFG.top);
+      ctx.fillStyle = i % 2 ? "#2f8a4f" : "#2a8049";
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath(); ctx.fill();
+    }
+    pline(ctx, proj(farFx, CFG.top), proj(nearFx, CFG.top), "rgba(255,255,255,0.8)", 2);
+    pline(ctx, proj(farFx, CFG.bottom), proj(nearFx, CFG.bottom), "rgba(255,255,255,0.8)", 2);
+    if (CFG.midX < farFx && CFG.midX > nearFx) pline(ctx, proj(CFG.midX, CFG.top), proj(CFG.midX, CFG.bottom), "rgba(255,255,255,0.65)", 2);
+    pBox(ctx, proj, CFG.right, -1); pBox(ctx, proj, CFG.left, 1);
+    pCircle(ctx, proj, CFG.midX, CFG.midY, 64);
+    goalP(ctx, proj, CFG.right); goalP(ctx, proj, CFG.left);
+  }
+  function pBox(ctx, proj, gx, dir) {
+    const bx = gx + dir * 88, y0 = CFG.midY - (CFG.goalMouth + 70) / 2, y1 = CFG.midY + (CFG.goalMouth + 70) / 2;
+    const c1 = proj(gx, y0), c2 = proj(gx, y1), c3 = proj(bx, y1), c4 = proj(bx, y0);
+    ctx.strokeStyle = "rgba(255,255,255,0.65)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(c1[0], c1[1]); ctx.lineTo(c4[0], c4[1]); ctx.lineTo(c3[0], c3[1]); ctx.lineTo(c2[0], c2[1]); ctx.stroke();
+  }
+  function pCircle(ctx, proj, cx, cy, r) {
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 24; i++) { const a = i / 24 * Math.PI * 2; const p = proj(cx + Math.cos(a) * r, cy + Math.sin(a) * r); i === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]); }
+    ctx.stroke();
+  }
+  function goalP(ctx, proj, gx) {
+    const a = proj(gx, CFG.goalTop), b = proj(gx, CFG.goalBot), ha = PV.POST * a[2], hb = PV.POST * b[2];
+    pline(ctx, a, b, "rgba(255,255,255,0.85)", 2);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1;
+    for (let i = 1; i < 6; i++) { const t = i / 6, x = lerp(a[0], b[0], t), yb = lerp(a[1], b[1], t), yt = lerp(a[1] - ha, b[1] - hb, t); ctx.beginPath(); ctx.moveTo(x, yb); ctx.lineTo(x, yt); ctx.stroke(); }
+    ctx.strokeStyle = "#f4f7ff"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a[0], a[1] - ha); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(b[0], b[1]); ctx.lineTo(b[0], b[1] - hb); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a[0], a[1] - ha); ctx.lineTo(b[0], b[1] - hb); ctx.stroke();
+  }
+  function minimap(ctx, G) {
+    const mw = 150, mh = 74, mx = CFG.W - mw - 12, my = CFG.H - mh - 10;
+    ctx.fillStyle = "rgba(8,12,18,0.8)"; rrect(ctx, mx - 3, my - 3, mw + 6, mh + 6, 5); ctx.fill();
+    ctx.fillStyle = "#1f6d3c"; ctx.fillRect(mx, my, mw, mh);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1; ctx.strokeRect(mx, my, mw, mh);
+    ctx.beginPath(); ctx.moveTo(mx + mw / 2, my); ctx.lineTo(mx + mw / 2, my + mh); ctx.stroke();
+    const M = (wx, wy) => [mx + (wx - CFG.left) / CFG.pw * mw, my + (wy - CFG.top) / CFG.ph * mh];
+    for (const p of G.players) { const s = M(p.x, p.y); ctx.fillStyle = p.keeper ? "#fff" : (p.side === "home" ? KIDS.kit.shirt : G.away.kit.shirt); ctx.beginPath(); ctx.arc(s[0], s[1], 2.3, 0, Math.PI * 2); ctx.fill(); }
+    const bs = M(G.ball.x, G.ball.y); ctx.fillStyle = "#ffe85a"; ctx.beginPath(); ctx.arc(bs[0], bs[1], 2.2, 0, Math.PI * 2); ctx.fill();
   }
 
   function drawPlayer(ctx, p, controlled, tc, sx, sy, sc, proj) {
@@ -337,8 +394,9 @@ const Render = (() => {
       ctx.fillStyle = cp.fire > 0 ? "#ffd23a" : "#9fe3ff"; ctx.font = arc(8); ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
       ctx.fillText(cp.fire > 0 ? "ON FIRE!" : "TURBO", bx, by - 5);
     }
+    minimap(ctx, G);
     ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.font = sans(12); ctx.textAlign = "center";
-    ctx.fillText("MOVE arrows   SPRINT e   SHOOT d (hold)   PASS s   LOB/SLIDE a   SWITCH space", CFG.W / 2, CFG.H - 12);
+    ctx.fillText("MOVE arrows   SPRINT e   SHOOT d (hold)   PASS s   LOB/SLIDE a   SWITCH space", CFG.W / 2, CFG.H - 30);
     if (G.cardFlash > 0) {
       ctx.save(); ctx.globalAlpha = clamp(G.cardFlash, 0, 1);
       rrect(ctx, CFG.midX - 22, CFG.midY - 100, 44, 62, 5); ctx.fillStyle = G.cardColor || "#ffd23a"; ctx.fill();
