@@ -35,7 +35,7 @@ const AWAY_ROLES = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "FWD", "FWD"];
 /* ZOOMED 3/4 up-the-pitch world (Power Goal). Pitch is a fixed perspective surface;
    the camera scrolls over it in 2D. Tune: top/bot = pitch length, hwNear/hwFar = fan,
    vCurve = far squash, scNear/scFar + SPRITE_BASE = player size, zoom = how close. */
-const W = { cx: 940, top: 200, bot: 2520, hwNear: 880, hwFar: 380, vCurve: 0.70, scNear: 1.0, scFar: 0.45, zoom: 1.65 };
+const W = { cx: 940, top: 200, bot: 2520, hwNear: 880, hwFar: 540, vCurve: 0.70, scNear: 1.0, scFar: 0.45, zoom: 1.6 };
 const SPRITE_BASE = 1.1, ZK = 1.0;
 const camLerp = 0.16;
 
@@ -129,7 +129,9 @@ class Match extends Phaser.Scene {
 
   /* ---------- static pitch + thin stadium (drawn ONCE) ---------- */
   setupScene() {
-    this.cameras.main.setBackgroundColor(0x0b1f17);
+    this.cameras.main.setBackgroundColor(0x18472f);                 // grass surround: off-pitch reads as grass, never black
+    const ap = this.add.graphics().setDepth(-200);
+    ap.fillStyle(0x18472f, 1); ap.fillRect(-300, -300, W.cx * 2 + 600, W.bot + 900);
     const g = this.add.graphics().setDepth(-100);
     this.drawStands(g);
     this.drawPitch(g);
@@ -382,8 +384,8 @@ class Match extends Phaser.Scene {
       const spd = b.body.speed;
       for (const p of this.players) {
         if (p.kickCd > 0 || p.sentOff) continue;
-        const reach = p.isGK ? 26 : 22, zOk = p.isGK ? this.ballZ < 118 : low;
-        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 720 : 300) && (!p.isGK || Math.random() < 0.82)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
+        const reach = p.isGK ? 24 : 22, zOk = p.isGK ? this.ballZ < 116 : low;
+        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 700 : 300) && (!p.isGK || Math.random() < 0.66)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
       }
     }
   }
@@ -461,7 +463,8 @@ class Match extends Phaser.Scene {
     const bx = Phaser.Math.Clamp(this.ball.x + this.ball.body.velocity.x * 0.18, 0, PITCH.w);
     const by = Phaser.Math.Clamp(this.ball.y + this.ball.body.velocity.y * 0.18, 0, PITCH.h);
     const w = this.worldOf(bx, by);
-    this.camPt.x = Phaser.Math.Linear(this.camPt.x, w.x, camLerp);
+    const tx = Phaser.Math.Clamp(w.x, W.cx - 430, W.cx + 430);   // keep the pitch mostly filling the screen
+    this.camPt.x = Phaser.Math.Linear(this.camPt.x, tx, camLerp);
     this.camPt.y = Phaser.Math.Linear(this.camPt.y, w.y, camLerp);
     this.cam.centerOn(this.camPt.x, this.camPt.y);
   }
