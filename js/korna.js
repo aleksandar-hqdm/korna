@@ -18,8 +18,8 @@ PITCH.mouth = 220;
 const GOAL_NEAR = 48, GOAL_FAR = PITCH.h - 48;       // bottom goal / top goal
 const HALF = PITCH.h / 2;
 
-const ACC = 1900, MAXV = 250, SPRINTV = 350, DRAG = 1700;   // snappy: fast accel, quick stop (no floaty drift)
-const GRAV = 1700;
+const ACC = 1750, MAXV = 250, SPRINTV = 350, DRAG = 1500;   // momentum: quick but with a little weight
+const GRAV = 1850;
 const KID_PREFIX = { "Vanja": "vanja", "Fiči": "fici", Bobo: "bobo", Marko: "marko", Jan: "jan", Cacko: "cacko" };
 const ANIMS = ["idle", "run", "sprint", "kick", "pass", "tackle", "celebrate"];
 
@@ -39,7 +39,7 @@ const AWAY_ROLES = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "FWD", "FWD"];
    camera sits at the side and scrolls horizontally to follow the ball. Field fy (along
    the pitch) -> worldX (length), fx (across) -> worldY depth (far touchline up top,
    near touchline at the bottom, with perspective). */
-const W = { gx0: 380, gx1: 3260, yFar: 188, yNear: 548, persp: 1.25, skew: 92, scFar: 0.58, scNear: 1.3, zoom: 1.0 };
+const W = { gx0: 380, gx1: 3260, yFar: 176, yNear: 556, persp: 1.25, skew: 92, scFar: 0.56, scNear: 1.34, zoom: 1.24 };
 const SPRITE_BASE = 1.0, ZK = 1.0;
 const camLerp = 0.16;
 
@@ -55,14 +55,13 @@ class Preload extends Phaser.Scene {
     };
     Object.values(KID_PREFIX).forEach((p) => loadChar(p, p === "cacko"));
     Object.values(KID_PREFIX).forEach((p) => this.load.image("portrait_" + p, "assets/portraits/" + p + ".png"));
-    this.awayId = "ar86";
-    loadChar(this.awayId, false);
-    this.load.image("bg", "assets/backgrounds/" + this.awayId + ".png");
+    TEAMS.forEach((t) => { loadChar(t.id, false); this.load.image("portrait_" + t.id, "assets/portraits/" + t.id + ".png"); });  // all opponents
+    this.load.image("bg", "assets/backgrounds/ar86.png");
     this.add.text(GW / 2, GH / 2, "KORNA", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffcf3a" }).setOrigin(0.5);
   }
   create() {
     const mk = (key, rate, repeat) => { if (this.textures.exists(key)) this.anims.create({ key, frames: this.anims.generateFrameNumbers(key), frameRate: rate, repeat }); };
-    const all = [...Object.values(KID_PREFIX), this.awayId];
+    const all = [...Object.values(KID_PREFIX), ...TEAMS.map((t) => t.id)];
     all.forEach((p) => {
       mk(p + "_idle", 3, -1); mk(p + "_run", 12, -1); mk(p + "_sprint", 15, -1);
       mk(p + "_kick", 18, 0); mk(p + "_pass", 18, 0); mk(p + "_tackle", 14, 0); mk(p + "_celebrate", 8, -1);
@@ -88,32 +87,60 @@ const KID_FLAVOR = {
 class Home extends Phaser.Scene {
   constructor() { super("Home"); }
   create() {
-    if (this.textures.exists("bg")) this.add.image(GW / 2, GH / 2, "bg").setDisplaySize(GW, GH).setTint(0x35506a).setAlpha(0.55);
-    this.add.rectangle(GW / 2, GH / 2, GW, GH, 0x0a1322, 0.55);
-    this.add.text(GW / 2, 62, "KORNA", { fontFamily: "Press Start 2P", fontSize: "58px", color: "#ffcf3a" }).setOrigin(0.5).setShadow(0, 5, "#7a2a00", 0, true, true);
-    this.add.text(GW / 2, 116, "STREET CAGE FOOTBALL", { fontFamily: "Press Start 2P", fontSize: "13px", color: "#7fd0ff" }).setOrigin(0.5);
-    this.add.text(GW / 2, 150, KIDS.blurb, { fontFamily: "Trebuchet MS", fontSize: "17px", color: "#dde6f2" }).setOrigin(0.5);
-    this.add.text(GW / 2, 196, "YOUR SQUAD   —   tap a player to scout", { fontFamily: "Press Start 2P", fontSize: "10px", color: "#9fb0c8" }).setOrigin(0.5);
+    if (this.textures.exists("bg")) this.add.image(GW / 2, GH / 2, "bg").setDisplaySize(GW, GH).setTint(0x35506a).setAlpha(0.5);
+    this.add.rectangle(GW / 2, GH / 2, GW, GH, 0x0a1322, 0.62);
+    this.add.text(GW / 2, 36, "KORNA", { fontFamily: "Press Start 2P", fontSize: "44px", color: "#ffcf3a" }).setOrigin(0.5).setShadow(0, 4, "#7a2a00", 0, true, true);
+    this.add.text(GW / 2, 72, "STREET CAGE FOOTBALL", { fontFamily: "Press Start 2P", fontSize: "11px", color: "#7fd0ff" }).setOrigin(0.5);
 
+    // ---- your squad (tap to scout) ----
+    this.add.text(GW / 2, 102, "YOUR SQUAD  —  tap a kid to scout", { fontFamily: "Press Start 2P", fontSize: "9px", color: "#9fb0c8" }).setOrigin(0.5);
     const roster = [...KIDS.outfield, KIDS.keeper];
-    const n = roster.length, cw = 142, gap = 10, totalW = n * cw + (n - 1) * gap, x0 = GW / 2 - totalW / 2 + cw / 2;
+    const n = roster.length, cw = 132, gap = 8, x0 = GW / 2 - (n * cw + (n - 1) * gap) / 2 + cw / 2;
     roster.forEach((k, i) => {
-      const x = x0 + i * (cw + gap), y = 308, pr = KID_PREFIX[k.name];
-      const bg = this.add.rectangle(x, y, cw, 152, 0x16203a, 1).setStrokeStyle(2, k.captain ? 0xffcf3a : 0x2a3a5c).setInteractive({ useHandCursor: true });
-      if (this.textures.exists("portrait_" + pr)) this.add.image(x, y - 20, "portrait_" + pr).setDisplaySize(98, 98);
-      this.add.text(x, y + 46, k.name.toUpperCase(), { fontFamily: "Press Start 2P", fontSize: "11px", color: "#fff" }).setOrigin(0.5);
-      this.add.text(x, y + 64, k.role + (k.captain ? "  (C)" : ""), { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#ffcf3a" }).setOrigin(0.5);
+      const x = x0 + i * (cw + gap), y = 166, pr = KID_PREFIX[k.name];
+      const bg = this.add.rectangle(x, y, cw, 104, 0x16203a, 1).setStrokeStyle(2, k.captain ? 0xffcf3a : 0x2a3a5c).setInteractive({ useHandCursor: true });
+      if (this.textures.exists("portrait_" + pr)) this.add.image(x, y - 14, "portrait_" + pr).setDisplaySize(62, 62);
+      this.add.text(x, y + 28, k.name.toUpperCase(), { fontFamily: "Press Start 2P", fontSize: "9px", color: "#fff" }).setOrigin(0.5);
+      this.add.text(x, y + 42, k.role + (k.captain ? " (C)" : ""), { fontFamily: "Trebuchet MS", fontSize: "11px", color: "#ffcf3a" }).setOrigin(0.5);
       bg.on("pointerover", () => bg.setFillStyle(0x243463)); bg.on("pointerout", () => bg.setFillStyle(0x16203a));
       bg.on("pointerdown", () => this.showProfile(k, pr));
     });
 
-    const play = this.add.rectangle(GW / 2, 512, 280, 60, 0xe23b4d).setStrokeStyle(3, 0xffffff, 0.3).setInteractive({ useHandCursor: true });
-    this.add.text(GW / 2, 512, "KICK OFF", { fontFamily: "Press Start 2P", fontSize: "22px", color: "#fff" }).setOrigin(0.5);
-    this.add.text(GW / 2, 556, "vs Argentina · Maradona era · press SPACE", { fontFamily: "Trebuchet MS", fontSize: "14px", color: "#dde6f2" }).setOrigin(0.5);
-    const go = () => this.scene.start("Match", { awayId: "ar86" });
+    // ---- choose your opponent ----
+    this.add.text(GW / 2, 248, "CHOOSE YOUR OPPONENT", { fontFamily: "Press Start 2P", fontSize: "11px", color: "#ffd23a" }).setOrigin(0.5);
+    const col = (h) => Phaser.Display.Color.HexStringToColor(h).color;
+    this.selectedAway = "ar86"; this.oppCards = {};
+    const N = TEAMS.length, ow = 112, og = 6, ox0 = GW / 2 - (N * ow + (N - 1) * og) / 2 + ow / 2;
+    TEAMS.forEach((tm, i) => {
+      const x = ox0 + i * (ow + og), y = 336;
+      const card = this.add.rectangle(x, y, ow, 134, 0x141d33, 1).setStrokeStyle(3, 0x2a3a5c).setInteractive({ useHandCursor: true });
+      this.add.rectangle(x, y - 50, ow - 14, 8, col(tm.kit.shirt));
+      if (this.textures.exists("portrait_" + tm.id)) this.add.image(x, y - 22, "portrait_" + tm.id).setDisplaySize(58, 58);
+      this.add.text(x, y + 18, (tm.flag || "") + " " + tm.name.toUpperCase(), { fontFamily: "Press Start 2P", fontSize: "7px", color: "#fff" }).setOrigin(0.5);
+      this.add.text(x, y + 38, tm.star, { fontFamily: "Trebuchet MS", fontSize: "12px", color: "#cfe0ff" }).setOrigin(0.5);
+      this.add.text(x, y + 54, tm.era, { fontFamily: "Trebuchet MS", fontSize: "10px", color: "#8aa0c0", wordWrap: { width: ow - 10 }, align: "center" }).setOrigin(0.5, 0);
+      this.oppCards[tm.id] = card;
+      card.on("pointerover", () => { if (tm.id !== this.selectedAway) card.setStrokeStyle(3, 0x4a6aa0); });
+      card.on("pointerout", () => { if (tm.id !== this.selectedAway) card.setStrokeStyle(3, 0x2a3a5c); });
+      card.on("pointerdown", () => this.selectOpp(tm.id));
+    });
+
+    // ---- play ----
+    const play = this.add.rectangle(GW / 2, 540, 300, 50, 0xe23b4d).setStrokeStyle(3, 0xffffff, 0.3).setInteractive({ useHandCursor: true });
+    this.add.text(GW / 2, 540, "KICK OFF", { fontFamily: "Press Start 2P", fontSize: "20px", color: "#fff" }).setOrigin(0.5);
+    this.vsText = this.add.text(GW / 2, 578, "", { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#dde6f2" }).setOrigin(0.5);
+    const go = () => this.scene.start("Match", { awayId: this.selectedAway });
     play.on("pointerover", () => play.setFillStyle(0xff5566)); play.on("pointerout", () => play.setFillStyle(0xe23b4d));
     play.on("pointerdown", go);
     this.input.keyboard.once("keydown-SPACE", go); this.input.keyboard.once("keydown-ENTER", go);
+    this.selectOpp("ar86");
+  }
+
+  selectOpp(id) {
+    this.selectedAway = id;
+    for (const k in this.oppCards) this.oppCards[k].setStrokeStyle(3, k === id ? 0xffcf3a : 0x2a3a5c).setFillStyle(k === id ? 0x26345c : 0x141d33);
+    const tm = TEAMS.find((t) => t.id === id);
+    if (this.vsText) this.vsText.setText("vs " + tm.name + " · " + tm.era + "   ·   press SPACE to play");
   }
 
   showProfile(k, pr) {
@@ -152,9 +179,10 @@ class Match extends Phaser.Scene {
 
     this.setupScene();
     this.players = []; this.home = []; this.away_ = [];
-    KIDS.outfield.forEach((k) => this.addPlayer(KID_PREFIX[k.name], k.role, HOME_POS[k.name], "home", { name: k.name, captain: k.captain, size: k.size }));
-    this.addPlayer("cacko", "GK", HOME_POS.Cacko, "home", { name: "Cacko", gk: true, size: 1.28 });
-    AWAY_POS.forEach((pos, i) => this.addPlayer(this.awayId, AWAY_ROLES[i], pos, "away", { gk: AWAY_ROLES[i] === "GK" }));
+    KIDS.outfield.forEach((k) => this.addPlayer(KID_PREFIX[k.name], k.role, HOME_POS[k.name], "home", { name: k.name, captain: k.captain, size: k.size, stats: k.stats }));
+    this.addPlayer("cacko", "GK", HOME_POS.Cacko, "home", { name: "Cacko", gk: true, size: 1.28, stats: KIDS.keeper.stats });
+    const awayStats = { speed: 1.03, accel: 1.0, power: 1.06, skill: 1.08 };
+    AWAY_POS.forEach((pos, i) => this.addPlayer(this.awayId, AWAY_ROLES[i], pos, "away", { gk: AWAY_ROLES[i] === "GK", stats: awayStats }));
 
     this.ball = this.physics.add.sprite(PITCH.cx, HALF, "ball");
     this.ball.setVisible(false);
@@ -203,7 +231,24 @@ class Match extends Phaser.Scene {
     const g = this.add.graphics().setDepth(-100);
     this.drawStands(g);
     this.drawPitch(g);
+    this.netG = this.add.graphics().setDepth(-38);   // net ripple on a goal
+    this.goalFx = null;
     this.markerG = this.add.graphics().setDepth(90000);
+  }
+
+  updateNetFx(dt) {
+    const g = this.netG; if (!this.goalFx) { if (g.commandBuffer && g.commandBuffer.length) g.clear(); return; }
+    this.goalFx.t -= dt; g.clear();
+    if (this.goalFx.t <= 0) { this.goalFx = null; return; }
+    const f = this.goalFx, prog = 1 - f.t / 0.7, bulge = Math.sin(prog * Math.PI) * 30;
+    const dir = f.side === "home" ? 1 : -1, mw = PITCH.mouth / 2, H = 98;
+    g.lineStyle(1.5, 0xffffff, 0.7 * (1 - prog * 0.4));
+    for (let k = 0; k <= 14; k++) {                                  // mesh bulging out where the ball hit
+      const fx = PITCH.cx - mw + (mw * 2) * k / 14;
+      const out = bulge * Math.max(0, 1 - Math.abs(fx - f.x) / 150);
+      const b = this.worldOf(fx, f.gy + dir * out), t = { x: b.x, y: b.y - H * b.s };
+      g.lineBetween(b.x, b.y, t.x, t.y);
+    }
   }
 
   drawStands(g) {
@@ -250,14 +295,14 @@ class Match extends Phaser.Scene {
   }
 
   drawGoal(g, gy, dir) {
-    const mw = PITCH.mouth / 2, H = 92;
+    const mw = PITCH.mouth / 2, H = 98;
     const lB = this.worldOf(PITCH.cx - mw, gy), rB = this.worldOf(PITCH.cx + mw, gy);
     const lT = { x: lB.x, y: lB.y - H * lB.s }, rT = { x: rB.x, y: rB.y - H * rB.s };
-    g.fillStyle(0xffffff, 0.12); g.fillPoints([lB, rB, rT, lT], true);
-    g.lineStyle(1, 0xffffff, 0.3);
-    for (let k = 1; k < 7; k++) { const t = k / 7; g.lineBetween(lB.x + (rB.x - lB.x) * t, lB.y + (rB.y - lB.y) * t, lT.x + (rT.x - lT.x) * t, lT.y + (rT.y - lT.y) * t); }
-    for (let k = 1; k < 3; k++) { const t = k / 3; g.lineBetween(lB.x + (lT.x - lB.x) * t, lB.y + (lT.y - lB.y) * t, rB.x + (rT.x - rB.x) * t, rB.y + (rT.y - rB.y) * t); }
-    g.lineStyle(5, 0xf4f8ff, 1); g.strokePoints([lB, lT, rT, rB], false, false);
+    g.fillStyle(0xdfe9f7, 0.10); g.fillPoints([lB, rB, rT, lT], true);                                  // net wash
+    g.lineStyle(1, 0xffffff, 0.36);
+    for (let k = 1; k < 12; k++) { const t = k / 12; g.lineBetween(lB.x + (rB.x - lB.x) * t, lB.y + (rB.y - lB.y) * t, lT.x + (rT.x - lT.x) * t, lT.y + (rT.y - lT.y) * t); }   // fine vertical mesh
+    for (let k = 1; k < 6; k++) { const t = k / 6; g.lineBetween(lB.x + (lT.x - lB.x) * t, lB.y + (lT.y - lB.y) * t, rB.x + (rT.x - rB.x) * t, rB.y + (rT.y - rB.y) * t); }              // horizontal mesh
+    g.lineStyle(6, 0xf6f9ff, 1); g.strokePoints([lB, lT, rT, rB], false, false);                        // posts + crossbar
   }
 
   /* ---------- setup helpers ---------- */
@@ -267,6 +312,9 @@ class Match extends Phaser.Scene {
     p.body.setCircle(13, 19, 43).setDrag(DRAG, DRAG).setMaxVelocity(MAXV).setCollideWorldBounds(true);
     p.prefix = prefix; p.role = role; p.side = side; p.isGK = !!meta.gk; p.captain = !!meta.captain;
     p.dispScale = meta.size || 1; p.sentOff = false;
+    const st = meta.stats || {};
+    p.spd = st.speed || 1; p.acc = st.accel || 1;                    // per-player weight: nimble vs heavy
+    p.pow = st.power || st.finishing || 1; p.skl = st.skill || 1; p.def = st.defense || st.reach || 1;
     p.homeX = p.x; p.homeY = p.y; p.faceX = 0; p.faceY = side === "home" ? 1 : -1;
     p.actT = 0; p.act = null; p.diveT = 0; p.celebrateT = 0; p.stealCd = 0; p.kickCd = 0; p.sprinting = false;
     p.shadow = this.add.image(p.x, p.y, "shadow").setDepth(4).setAlpha(0.42);
@@ -308,8 +356,8 @@ class Match extends Phaser.Scene {
   steer(p, tx, ty, sprint) {
     const dx = tx - p.x, dy = ty - p.y, m = Math.hypot(dx, dy);
     if (m < 16) { p.body.setAcceleration(0, 0); return; }   // settle without jittering on the spot
-    p.body.setMaxVelocity(sprint && m > 80 ? SPRINTV : MAXV); p.sprinting = sprint && m > 80;
-    p.body.setAcceleration(dx / m * ACC, dy / m * ACC);
+    p.body.setMaxVelocity((sprint && m > 80 ? SPRINTV : MAXV) * p.spd); p.sprinting = sprint && m > 80;
+    p.body.setAcceleration(dx / m * ACC * p.acc, dy / m * ACC * p.acc);
     p.faceX = dx / m; p.faceY = dy / m;                     // face where they run (so AI passes/shots aim right)
   }
 
@@ -328,6 +376,7 @@ class Match extends Phaser.Scene {
     this.updatePossession(dt);
     this.players.forEach((p) => this.animate(p));
     this.checkGoals();
+    this.updateNetFx(dt);
     this.renderSprites();
     this.updateCam(dt);
     this.updateMini();
@@ -354,8 +403,8 @@ class Match extends Phaser.Scene {
     if (this.cursors.up.isDown) depth = -1; else if (this.cursors.down.isDown) depth = 1;   // up = toward the far touchline
     const m = Math.hypot(along, depth) || 1;
     const sprint = this.keys.sprint.isDown;
-    c.body.setMaxVelocity(sprint ? SPRINTV : MAXV); c.sprinting = sprint;
-    c.body.setAcceleration(depth / m * ACC, along / m * ACC);   // body.x = fx (depth), body.y = fy (length)
+    c.body.setMaxVelocity((sprint ? SPRINTV : MAXV) * c.spd); c.sprinting = sprint;
+    c.body.setAcceleration(depth / m * ACC * c.acc, along / m * ACC * c.acc);   // body.x = fx (depth), body.y = fy (length)
     if (along || depth) { c.faceX = depth / m; c.faceY = along / m; }
 
     const owns = this.owner === c;
@@ -417,8 +466,9 @@ class Match extends Phaser.Scene {
     }
     this.owner = null; this.ownerHold = 0;
     const tgt = best || { x: p.x + dirx * 280, y: p.y + diry * 280 };   // none aligned -> lead pass where you point
-    const a = Math.atan2(tgt.x - p.x, tgt.y - p.y), dd = Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y);
-    const pw = Phaser.Math.Clamp(dd * 2.0 + 120, 300, 560);
+    const a = Math.atan2(tgt.x - p.x, tgt.y - p.y) + (Math.random() - 0.5) * 0.07 / (p.skl || 1);  // natural error, less with skill
+    const dd = Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y);
+    const pw = Phaser.Math.Clamp(dd * 2.0 + 120, 300, 560) * (0.94 + Math.random() * 0.12);
     this.ball.body.setVelocity(Math.sin(a) * pw, Math.cos(a) * pw);
     this.ballZ = 3; this.ballVZ = 55;
     p.actT = 0.24; p.act = "pass";
@@ -497,7 +547,7 @@ class Match extends Phaser.Scene {
       const dx = o.faceX, dy = o.faceY, m = Math.hypot(dx, dy) || 1;
       b.setPosition(Phaser.Math.Linear(b.x, o.x + dx / m * 20, 0.5), Phaser.Math.Linear(b.y, o.y + dy / m * 20, 0.5));
       b.body.setVelocity(o.body.velocity.x, o.body.velocity.y); this.ballZ = 0; this.ballVZ = 0;
-      if (o.isGK && this.ownerHold > 0.8) { this.gkThrow(o); return; }    // keeper throws to a free team-mate
+      if (o.isGK && this.ownerHold > 1.7) { this.gkThrow(o); return; }    // keeper holds the save, then throws to a free team-mate
       if (this.ownerHold > 0.15) for (const p of this.players) {
         if (p.side === o.side || p.stealCd > 0 || p.sentOff) continue;
         if (Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) < 26) {
@@ -511,7 +561,7 @@ class Match extends Phaser.Scene {
       for (const p of this.players) {
         if (p.kickCd > 0 || p.sentOff) continue;
         const reach = p.isGK ? 34 : 24, zOk = p.isGK ? this.ballZ < 230 : low;   // keeper grabs high balls + saves
-        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 880 : 470) && (!p.isGK || Math.random() < 0.86)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
+        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 920 : 470) && (!p.isGK || Math.random() < (p.diveT > 0 ? 0.97 : 0.84))) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
       }
     }
   }
@@ -545,6 +595,11 @@ class Match extends Phaser.Scene {
     if (side === "home") this.score.home++; else this.score.away++;
     this.scoreText.setText(this.score.home + " - " + this.score.away);
     this.banner("G O A L !", 2.4, side === "home" ? "#ffe23a" : "#ff9aa2");
+    // net ripple + lodge the ball in the net
+    const gy = side === "home" ? GOAL_FAR : GOAL_NEAR;
+    this.goalFx = { side, gy, x: Phaser.Math.Clamp(this.ball.x, PITCH.cx - PITCH.mouth / 2, PITCH.cx + PITCH.mouth / 2), t: 0.7 };
+    this.ball.body.setVelocity(0, 0); this.ballZ = 0; this.ballVZ = 0;
+    this.ball.setPosition(this.goalFx.x, gy + (side === "home" ? 18 : -18));
     this.cam.shake(260, 0.007); this.cam.flash(200, 255, 255, 255);
     this.cam.zoomTo(this.baseZoom * 1.25, 360, "Sine.easeInOut", true);
     this.time.delayedCall(1100, () => this.cam.zoomTo(this.baseZoom, 600, "Sine.easeInOut", true));
