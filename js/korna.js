@@ -18,8 +18,8 @@ PITCH.mouth = 220;
 const GOAL_NEAR = 48, GOAL_FAR = PITCH.h - 48;       // bottom goal / top goal
 const HALF = PITCH.h / 2;
 
-const ACC = 980, MAXV = 178, SPRINTV = 252, DRAG = 920;
-const GRAV = 1500;
+const ACC = 1900, MAXV = 250, SPRINTV = 350, DRAG = 1700;   // snappy: fast accel, quick stop (no floaty drift)
+const GRAV = 1700;
 const KID_PREFIX = { "Vanja": "vanja", "Fiči": "fici", Bobo: "bobo", Marko: "marko", Jan: "jan", Cacko: "cacko" };
 const ANIMS = ["idle", "run", "sprint", "kick", "pass", "tackle", "celebrate"];
 
@@ -35,7 +35,7 @@ const AWAY_ROLES = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "FWD", "FWD"];
 /* ZOOMED 3/4 up-the-pitch world (Power Goal). Pitch is a fixed perspective surface;
    the camera scrolls over it in 2D. Tune: top/bot = pitch length, hwNear/hwFar = fan,
    vCurve = far squash, scNear/scFar + SPRITE_BASE = player size, zoom = how close. */
-const W = { cx: 940, top: 190, bot: 2620, hwNear: 940, hwFar: 300, persp: 1.95, scNear: 1.05, scFar: 0.38, zoom: 1.9 };
+const W = { cx: 940, top: 230, bot: 2560, hwNear: 900, hwFar: 360, persp: 1.4, scNear: 1.04, scFar: 0.46, zoom: 1.95 };
 const SPRITE_BASE = 1.0, ZK = 1.0;
 const camLerp = 0.16;
 
@@ -160,7 +160,7 @@ class Match extends Phaser.Scene {
     this.ballDisp = this.add.sprite(0, 0, "ball");
     this.owner = null; this.ownerHold = 0; this.justScored = 0;
 
-    this.physics.add.collider(this.players, this.players);
+    // no hard player-player collisions: arcade dribbling pushes through pressure; ball-winning is via the steal logic
     this.controlled = this.nearestHome(this.ball.x, this.ball.y);
     this.switchLock = 0;
 
@@ -230,9 +230,9 @@ class Match extends Phaser.Scene {
       const c = i % 2 ? lerpC([0x2a, 0x80, 0x49], [0x33, 0x90, 0x53], t) : lerpC([0x25, 0x74, 0x41], [0x2d, 0x86, 0x4c], t);
       g.fillStyle(c, 1); g.fillPoints([P(L, a), P(R, a), P(R, b), P(L, b)], true);
     }
-    // converging mowing lines down the pitch -> 3D grid that recedes into the distance
-    g.lineStyle(2, 0x1d6234, 0.5);
-    for (let k = 1; k < 12; k++) { const fx = PITCH.w * k / 12; g.strokePoints([P(fx, GOAL_NEAR), P(fx, GOAL_FAR)], false, false); }
+    // subtle converging mowing lines -> 3D depth without a harsh wireframe
+    g.lineStyle(2, 0x1f6535, 0.16);
+    for (let k = 1; k < 8; k++) { const fx = PITCH.w * k / 8; g.strokePoints([P(fx, GOAL_NEAR), P(fx, GOAL_FAR)], false, false); }
     const line = (pts, close, lw, al) => { g.lineStyle(lw, 0xffffff, al == null ? 0.9 : al); g.strokePoints(pts.map(P), close, close); };
     line([[L, GOAL_NEAR], [R, GOAL_NEAR], [R, GOAL_FAR], [L, GOAL_FAR]], true, 4);        // boundary
     line([[L, HALF], [R, HALF]], false, 4);                                                // halfway
@@ -265,7 +265,7 @@ class Match extends Phaser.Scene {
     p.dispScale = meta.size || 1; p.sentOff = false;
     p.homeX = p.x; p.homeY = p.y; p.faceX = 0; p.faceY = side === "home" ? 1 : -1;
     p.actT = 0; p.act = null; p.diveT = 0; p.celebrateT = 0; p.stealCd = 0; p.kickCd = 0; p.sprinting = false;
-    p.shadow = this.add.image(p.x, p.y, "shadow").setDepth(4).setAlpha(0.32);
+    p.shadow = this.add.image(p.x, p.y, "shadow").setDepth(4).setAlpha(0.42);
     p.disp = this.add.sprite(p.x, p.y, prefix + "_idle").setOrigin(0.5, 0.92);
     this.players.push(p);
     (side === "home" ? this.home : this.away_).push(p);
@@ -303,7 +303,7 @@ class Match extends Phaser.Scene {
   nearestOf(list, x, y, skipGK) { let best = null, bd = 1e9; for (const p of list) { if (p.sentOff || (skipGK && p.isGK)) continue; const d = Phaser.Math.Distance.Squared(x, y, p.x, p.y); if (d < bd) { bd = d; best = p; } } return best; }
   steer(p, tx, ty, sprint) {
     const dx = tx - p.x, dy = ty - p.y, m = Math.hypot(dx, dy);
-    if (m < 6) { p.body.setAcceleration(0, 0); return; }
+    if (m < 16) { p.body.setAcceleration(0, 0); return; }   // settle without jittering on the spot
     p.body.setMaxVelocity(sprint && m > 80 ? SPRINTV : MAXV); p.sprinting = sprint && m > 80;
     p.body.setAcceleration(dx / m * ACC, dy / m * ACC);
   }
@@ -331,12 +331,12 @@ class Match extends Phaser.Scene {
   updateBallHeight(dt) {
     if (this.ballZ > 0 || this.ballVZ !== 0) {
       this.ballZ += this.ballVZ * dt; this.ballVZ -= GRAV * dt;
-      if (this.ballZ <= 0) { this.ballZ = 0; this.ballVZ = Math.abs(this.ballVZ) > 120 ? -this.ballVZ * 0.42 : 0; }
+      if (this.ballZ <= 0) { this.ballZ = 0; this.ballVZ = Math.abs(this.ballVZ) > 200 ? -this.ballVZ * 0.32 : 0; }
     }
   }
 
   updateControlled() {
-    if (this.owner && this.owner.side === "home" && !this.owner.isGK) { this.controlled = this.owner; return; }
+    if (this.owner && this.owner.side === "home") { this.controlled = this.owner; return; }   // GK too: you control him to clear/throw
     if (this.switchLock > 0) return;
     this.controlled = this.nearestHome(this.ball.x, this.ball.y) || this.controlled;
   }
@@ -440,6 +440,7 @@ class Match extends Phaser.Scene {
       const dx = o.faceX, dy = o.faceY, m = Math.hypot(dx, dy) || 1;
       b.setPosition(Phaser.Math.Linear(b.x, o.x + dx / m * 20, 0.5), Phaser.Math.Linear(b.y, o.y + dy / m * 20, 0.5));
       b.body.setVelocity(o.body.velocity.x, o.body.velocity.y); this.ballZ = 0; this.ballVZ = 0;
+      if (o.isGK && this.ownerHold > 3.2) { this.passBall(o); return; }    // keeper distributes (auto if you don't)
       if (this.ownerHold > 0.15) for (const p of this.players) {
         if (p.side === o.side || p.stealCd > 0 || p.sentOff) continue;
         if (Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) < 26) {
@@ -452,8 +453,8 @@ class Match extends Phaser.Scene {
       const spd = b.body.speed;
       for (const p of this.players) {
         if (p.kickCd > 0 || p.sentOff) continue;
-        const reach = p.isGK ? 24 : 22, zOk = p.isGK ? this.ballZ < 116 : low;
-        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 700 : 300) && (!p.isGK || Math.random() < 0.66)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
+        const reach = p.isGK ? 30 : 22, zOk = p.isGK ? this.ballZ < 220 : low;   // keeper grabs high balls (no hovering)
+        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 720 : 300) && (!p.isGK || Math.random() < 0.7)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
       }
     }
   }
@@ -503,8 +504,8 @@ class Match extends Phaser.Scene {
     else if (p.actT > 0 && p.act && has(p.act)) d.play(k(p.act), true);
     else {
       const sp = p.body.speed;
-      if (sp > SPRINTV * 0.72 && p.sprinting && has("sprint")) d.play({ key: k("sprint"), repeat: -1 }, true);
-      else if (sp > 18) d.play({ key: k("run"), repeat: -1 }, true);
+      if (sp > SPRINTV * 0.74 && p.sprinting && has("sprint")) d.play({ key: k("sprint"), repeat: -1 }, true);
+      else if (sp > 50) d.play({ key: k("run"), repeat: -1 }, true);   // only "run" when actually translating (no jog-in-place)
       else d.play({ key: k("idle"), repeat: -1 }, true);
     }
     if (Math.abs(p.body.velocity.x) > 8) d.setFlipX(p.body.velocity.x < 0);   // across-pitch velocity = screen left/right
