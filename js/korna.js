@@ -25,13 +25,16 @@ const FX = (f) => PITCH.mg + f * PITCH.fw;
 const FY = (f) => PITCH.mg + f * PITCH.fh;
 const inMouth = (x) => x > PITCH.cx - PITCH.mouth / 2 && x < PITCH.cx + PITCH.mouth / 2;
 
-/* 3/4 "up the pitch" camera (Super Sidekicks). Gameplay stays flat in field space;
-   we PROJECT it to the screen. Far goal (low field-y) sits high + small at the top,
-   the near side is large at the bottom, lateral lines converge. Tune these to taste:
-   back = how far the camera sits behind the ball (bigger = flatter / less tilt),
-   focal/ground = zoom + how high the camera is, smin/smax = how much players shrink. */
-const PV = { cx: GW / 2, horizon: -150, focal: 620, back: 900, ground: 720, dzmin: 300, smin: 0.6, smax: 1.05, sbase: 1.4 };
-const FCX = PITCH.w / 2;          // field centre line
+/* STATIC pitch + scrolling camera (how the real arcade games do it). The pitch is
+   drawn ONCE as a fixed trapezoid in world space (far goal narrow at the top, near
+   side wide at the bottom); the Phaser camera then just SCROLLS over it to follow the
+   ball, so the pitch never wobbles and players move across a stable surface.
+   Field (fx 0..PITCH.w, fy 0..PITCH.h; fy 0 = far goal) maps to world via worldOf().
+   Tune: top/bot = pitch length on screen, hwFar/hwNear = how much it fans out,
+   vCurve = perspective squash toward the far end, scFar/scNear + SPRITE_BASE = player size, zoom. */
+const W = { cx: 700, top: 420, bot: 2200, hwFar: 300, hwNear: 690, vCurve: 1.22, scFar: 0.62, scNear: 1.2, zoom: 1.12 };
+const SPRITE_BASE = 1.15;
+const camLerp = 0.10;
 
 /* ----------------------------- Preload ----------------------------- */
 class Preload extends Phaser.Scene {
@@ -101,10 +104,13 @@ class Match extends Phaser.Scene {
     this.controlled = this.nearestHome(this.ball.x, this.ball.y);
     this.switchLock = 0;
 
-    // camera: fixed viewport; all "camera movement" is the projection panning (camFx/camFy)
+    // camera scrolls over the STATIC world pitch to follow the ball carrier
     this.cam = this.cameras.main;
-    this.camFx = this.ball.x;
-    this.camFy = this.ball.y;
+    this.cam.setBounds(0, 0, W.cx * 2, W.bot + 280);
+    this.cam.setZoom(W.zoom);
+    const w0 = this.worldOf(this.ball.x, this.ball.y);
+    this.camPt = new Phaser.Math.Vector2(w0.x, w0.y);
+    this.cam.centerOn(w0.x, w0.y);
 
     // input
     this.cursors = this.input.keyboard.createCursorKeys();
@@ -133,82 +139,94 @@ class Match extends Phaser.Scene {
     return p;
   }
 
-  /* ---------- 3/4 projection + scene drawing ---------- */
-  proj(fx, fy) {
-    let dz = PV.back + (this.camFy - fy);
-    if (dz < PV.dzmin) dz = PV.dzmin;
-    const s = PV.focal / dz;
-    return { x: PV.cx + (fx - this.camFx) * s, y: PV.horizon + PV.ground * s, s };
+  /* ---------- field -> world mapping (a FIXED trapezoid; no per-frame perspective) ---------- */
+  worldOf(fx, fy) {
+    const ny = Phaser.Math.Clamp(fy / PITCH.h, 0, 1);          // 0 far goal .. 1 near goal
+    const vy = Math.pow(ny, W.vCurve);                          // squash rows toward the far end
+    const hw = Phaser.Math.Linear(W.hwFar, W.hwNear, vy);
+    return {
+      x: W.cx + (fx / PITCH.w - 0.5) * 2 * hw,
+      y: Phaser.Math.Linear(W.top, W.bot, vy),
+      s: Phaser.Math.Linear(W.scFar, W.scNear, vy),
+    };
   }
 
   setupScene() {
-    this.add.rectangle(GW / 2, GH / 2, GW, GH, 0x0a1018).setDepth(-2000);   // sky / fill behind everything
-    if (this.textures.exists("bg")) this.add.image(GW / 2, 0, "bg").setOrigin(0.5, 0).setDisplaySize(GW, 320).setDepth(-1000);
-    this.pitchG = this.add.graphics().setDepth(-50);                        // pitch is redrawn each frame (camera pans)
-    this.markerG = this.add.graphics().setDepth(900);                      // "you" arrow over the controlled kid
+    // painted stadium stands sit behind the far goal; its lower (pitch) half is hidden under our grass
+    if (this.textures.exists("bg")) {
+      const tex = this.textures.get("bg").getSourceImage();
+      const bw = W.hwNear * 2 * 1.6;
+      const st = this.add.image(W.cx, W.top, "bg").setOrigin(0.5, 0.46).setDepth(-900);
+      st.setDisplaySize(bw, bw * (tex.height / tex.width));
+    }
+    const g = this.add.graphics().setDepth(-50);               // STATIC pitch: drawn ONCE here, never per frame
+    this.drawPitchStatic(g);
+    this.markerG = this.add.graphics().setDepth(90000);        // "you" arrow over the controlled kid
   }
 
-  strokeField(g, pts, close) {
-    const pp = pts.map((p) => { const q = this.proj(p[0], p[1]); return { x: q.x, y: q.y }; });
-    g.strokePoints(pp, close, close);
-  }
-  ellipseField(g, cx, cy, r) {
-    const pp = [];
-    for (let a = 0; a <= 26; a++) { const t = a / 26 * Math.PI * 2; const q = this.proj(cx + Math.cos(t) * r, cy + Math.sin(t) * r); pp.push({ x: q.x, y: q.y }); }
-    g.strokePoints(pp, true, true);
-  }
-  renderPitch() {
-    const g = this.pitchG; g.clear();
-    const P = (fx, fy) => { const q = this.proj(fx, fy); return { x: q.x, y: q.y }; };
-    const top = PITCH.mg, bot = PITCH.h - PITCH.mg, L = PITCH.mg, R = PITCH.w - PITCH.mg, N = 16;
-    for (let i = 0; i < N; i++) {                                           // mown grass bands (each a perspective quad)
-      const a = top + (bot - top) * i / N, b = top + (bot - top) * (i + 1) / N;
-      g.fillStyle(i % 2 ? 0x2f8a4f : 0x2a8049, 1);
+  drawPitchStatic(g) {
+    const P = (fx, fy) => { const w = this.worldOf(fx, fy); return { x: w.x, y: w.y }; };
+    const lerpC = (c1, c2, t) => Phaser.Display.Color.GetColor(
+      Math.round(c1[0] + (c2[0] - c1[0]) * t), Math.round(c1[1] + (c2[1] - c1[1]) * t), Math.round(c1[2] + (c2[2] - c1[2]) * t));
+    const top = PITCH.mg, bot = PITCH.h - PITCH.mg, L = PITCH.mg, R = PITCH.w - PITCH.mg, N = 24;
+    for (let i = 0; i < N; i++) {                              // mown grass bands (perspective quads), lighter toward near
+      const t = i / N, a = top + (bot - top) * i / N, b = top + (bot - top) * (i + 1) / N;
+      const c = i % 2 ? lerpC([0x24, 0x76, 0x40], [0x3a, 0x9a, 0x57], t) : lerpC([0x2a, 0x82, 0x4a], [0x44, 0xa6, 0x60], t);
+      g.fillStyle(c, 1);
       g.fillPoints([P(L, a), P(R, a), P(R, b), P(L, b)], true);
     }
-    g.lineStyle(3, 0xffffff, 0.85);
-    this.strokeField(g, [[L, top], [R, top], [R, bot], [L, bot]], true);    // boundary
-    this.strokeField(g, [[L, PITCH.h / 2], [R, PITCH.h / 2]], false);       // halfway
-    this.ellipseField(g, PITCH.cx, PITCH.h / 2, 90);                        // centre circle
-    this.strokeField(g, [[PITCH.cx - 150, top], [PITCH.cx + 150, top], [PITCH.cx + 150, top + 140], [PITCH.cx - 150, top + 140]], true);
-    this.strokeField(g, [[PITCH.cx - 150, bot], [PITCH.cx + 150, bot], [PITCH.cx + 150, bot - 140], [PITCH.cx - 150, bot - 140]], true);
-    g.lineStyle(5, 0xeef4ff, 1);                                            // goal lines
-    this.strokeField(g, [[PITCH.cx - PITCH.mouth / 2, GOAL_TOP], [PITCH.cx + PITCH.mouth / 2, GOAL_TOP]], false);
-    this.strokeField(g, [[PITCH.cx - PITCH.mouth / 2, GOAL_BOT], [PITCH.cx + PITCH.mouth / 2, GOAL_BOT]], false);
+    const stroke = (pts, close, lw, col, al) => { g.lineStyle(lw, col, al); g.strokePoints(pts.map(P), close, close); };
+    stroke([[L, top], [R, top], [R, bot], [L, bot]], true, 4, 0xffffff, 0.9);                 // boundary
+    stroke([[L, PITCH.h / 2], [R, PITCH.h / 2]], false, 4, 0xffffff, 0.85);                    // halfway
+    const cc = []; for (let k = 0; k <= 30; k++) { const a = k / 30 * Math.PI * 2; cc.push(P(PITCH.cx + Math.cos(a) * 95, PITCH.h / 2 + Math.sin(a) * 95)); }
+    g.lineStyle(4, 0xffffff, 0.85); g.strokePoints(cc, true, true);                            // centre circle
+    stroke([[PITCH.cx - 168, top], [PITCH.cx + 168, top], [PITCH.cx + 168, top + 150], [PITCH.cx - 168, top + 150]], true, 4, 0xffffff, 0.85);
+    stroke([[PITCH.cx - 168, bot], [PITCH.cx + 168, bot], [PITCH.cx + 168, bot - 150], [PITCH.cx - 168, bot - 150]], true, 4, 0xffffff, 0.85);
+    [[GOAL_TOP, 1], [GOAL_BOT, -1]].forEach((gg) => {                                          // goals: mouth + net hint
+      const gy = gg[0], dir = gg[1];
+      const lp = P(PITCH.cx - PITCH.mouth / 2, gy), rp = P(PITCH.cx + PITCH.mouth / 2, gy);
+      const lb = P(PITCH.cx - PITCH.mouth / 2, gy - dir * 30), rb = P(PITCH.cx + PITCH.mouth / 2, gy - dir * 30);
+      g.fillStyle(0xffffff, 0.16); g.fillPoints([lp, rp, rb, lb], true);
+      g.lineStyle(5, 0xffffff, 1); g.strokePoints([lp, lb, rb, rp], false, false);
+    });
   }
 
-  renderScene() {
-    this.camFy = Phaser.Math.Linear(this.camFy, this.ball.y, 0.09);                                   // follow up/down the pitch
-    this.camFx = Phaser.Math.Linear(this.camFx, Phaser.Math.Clamp(this.ball.x, FCX - 110, FCX + 110), 0.06); // gentle lateral pan
-    this.renderPitch();
+  /* ---------- per-frame: place sprites + scroll the camera (the pitch never redraws) ---------- */
+  renderSprites() {
     for (const p of this.players) {
-      const q = this.proj(p.x, p.y);
-      p.disp.setPosition(q.x, q.y).setScale(Phaser.Math.Clamp(q.s, PV.smin, PV.smax) * PV.sbase * p.dispScale).setDepth(q.y);
+      const w = this.worldOf(p.x, p.y);
+      p.disp.setPosition(w.x, w.y).setScale(w.s * SPRITE_BASE * p.dispScale).setDepth(w.y);
     }
-    const bq = this.proj(this.ball.x, this.ball.y);
-    this.ballDisp.setPosition(bq.x, bq.y).setScale(Phaser.Math.Clamp(bq.s, PV.smin, PV.smax) * 0.9).setDepth(bq.y + 4);
-    // "you" chevron over the controlled kid
+    const b = this.worldOf(this.ball.x, this.ball.y);
+    this.ballDisp.setPosition(b.x, b.y).setScale(b.s * 0.85).setDepth(b.y + 4);
     const mg = this.markerG; mg.clear();
     const c = this.controlled;
     if (c) {
-      const d = c.disp, hx = d.x, hy = d.y - d.displayHeight * 0.92 - 8;
+      const d = c.disp, hx = d.x, hy = d.y - d.displayHeight * 0.92 - 10;
       mg.fillStyle(this.owner === c ? 0xffe23a : 0x6fd0ff, 1);
-      mg.fillTriangle(hx - 8, hy - 8, hx + 8, hy - 8, hx, hy + 2);
+      mg.fillTriangle(hx - 9, hy - 10, hx + 9, hy - 10, hx, hy + 2);
     }
+  }
+
+  updateCam() {
+    const w = this.worldOf(this.ball.x, this.ball.y);
+    this.camPt.x = Phaser.Math.Linear(this.camPt.x, w.x, camLerp);
+    this.camPt.y = Phaser.Math.Linear(this.camPt.y, w.y - 70, camLerp);    // bias up a little so you see ahead
+    this.cam.centerOn(this.camPt.x, this.camPt.y);
   }
 
   buildHUD() {
     const col = (h) => Phaser.Display.Color.HexStringToColor(h).color;
-    this.add.rectangle(GW / 2, 22, 360, 36, 0x0a0e16, 0.85).setStrokeStyle(2, 0xffffff, 0.12).setScrollFactor(0).setDepth(1000);
-    this.add.rectangle(GW / 2 - 150, 22, 22, 22, col(KIDS.kit.shirt)).setScrollFactor(0).setDepth(1001);
-    this.add.rectangle(GW / 2 + 150, 22, 22, 22, col(this.away.kit.shirt)).setScrollFactor(0).setDepth(1001);
-    this.scoreText = this.add.text(GW / 2, 22, "0 - 0", { fontFamily: "Press Start 2P", fontSize: "18px", color: "#ffe85a" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
-    this.add.text(GW / 2 - 132, 22, "KORNA", { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1001);
-    this.add.text(GW / 2 + 132, 22, this.away.name.toUpperCase().slice(0, 8), { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1001);
-    this.bannerText = this.add.text(GW / 2, GH / 2 - 30, "", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffd23a" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
-    this.hint = this.add.text(GW / 2, GH - 14, "MOVE arrows  SPRINT e  SHOOT d  PASS s  SWITCH space", { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#9fb0c8" }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+    this.add.rectangle(GW / 2, 22, 360, 36, 0x0a0e16, 0.85).setStrokeStyle(2, 0xffffff, 0.12).setScrollFactor(0).setDepth(100000);
+    this.add.rectangle(GW / 2 - 150, 22, 22, 22, col(KIDS.kit.shirt)).setScrollFactor(0).setDepth(100001);
+    this.add.rectangle(GW / 2 + 150, 22, 22, 22, col(this.away.kit.shirt)).setScrollFactor(0).setDepth(100001);
+    this.scoreText = this.add.text(GW / 2, 22, "0 - 0", { fontFamily: "Press Start 2P", fontSize: "18px", color: "#ffe85a" }).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
+    this.add.text(GW / 2 - 132, 22, "KORNA", { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(100001);
+    this.add.text(GW / 2 + 132, 22, this.away.name.toUpperCase().slice(0, 8), { fontFamily: "Press Start 2P", fontSize: "10px", color: "#fff" }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(100001);
+    this.bannerText = this.add.text(GW / 2, GH / 2 - 30, "", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffd23a" }).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
+    this.hint = this.add.text(GW / 2, GH - 14, "MOVE arrows  SPRINT e  SHOOT d  PASS s  SWITCH space", { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#9fb0c8" }).setOrigin(0.5).setScrollFactor(0).setDepth(100001);
     // minimap
-    this.mini = this.add.graphics().setScrollFactor(0).setDepth(1001);
+    this.mini = this.add.graphics().setScrollFactor(0).setDepth(100001);
   }
 
   banner(t, dur) { this.bannerText.setText(t); this.bannerT = dur; }
@@ -250,7 +268,8 @@ class Match extends Phaser.Scene {
     this.updatePossession(dt);
     this.players.forEach((p) => this.animate(p));
     this.checkGoals();
-    this.renderScene();
+    this.renderSprites();
+    this.updateCam();
     this.updateMini();
   }
 
