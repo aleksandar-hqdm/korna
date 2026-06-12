@@ -158,7 +158,7 @@ class Match extends Phaser.Scene {
 
     this.ball = this.physics.add.sprite(PITCH.cx, HALF, "ball");
     this.ball.setVisible(false);
-    this.ball.body.setCircle(7).setBounce(0.42).setDrag(230).setCollideWorldBounds(true).setMaxVelocity(780);  // rolls to a stop
+    this.ball.body.setCircle(7).setBounce(0.42).setDrag(150).setCollideWorldBounds(true).setMaxVelocity(840);  // rolls, carries passes, settles
     this.ballZ = 0; this.ballVZ = 0;
     this.ballShadow = this.add.image(0, 0, "shadow").setDepth(5);
     this.ballDisp = this.add.sprite(0, 0, "ball");
@@ -310,6 +310,7 @@ class Match extends Phaser.Scene {
     if (m < 16) { p.body.setAcceleration(0, 0); return; }   // settle without jittering on the spot
     p.body.setMaxVelocity(sprint && m > 80 ? SPRINTV : MAXV); p.sprinting = sprint && m > 80;
     p.body.setAcceleration(dx / m * ACC, dy / m * ACC);
+    p.faceX = dx / m; p.faceY = dy / m;                     // face where they run (so AI passes/shots aim right)
   }
 
   /* ---------- main loop ---------- */
@@ -373,29 +374,53 @@ class Match extends Phaser.Scene {
 
   shoot(p, chip) {
     this.owner = null; this.ownerHold = 0;
-    const gy = p.side === "home" ? GOAL_FAR : GOAL_NEAR;
+    const gy = p.side === "home" ? GOAL_FAR : GOAL_NEAR, fwd = p.side === "home" ? 1 : -1;
+    const dGoal = Math.abs(gy - p.y);
+    // A from deep = a lofted CROSS / long ball to a forward team-mate
+    if (chip && dGoal > 470) {
+      const mates = (p.side === "home" ? this.home : this.away_).filter((m) => m !== p && !m.isGK && !m.sentOff);
+      let tgt = null, bs = -1e9;
+      for (const m of mates) { const ah = (m.y - p.y) * fwd; if (ah < 60) continue; const sc = ah - Phaser.Math.Distance.Between(p.x, p.y, m.x, m.y) * 0.1; if (sc > bs) { bs = sc; tgt = m; } }
+      if (tgt) {
+        const aa = Math.atan2(tgt.x - p.x, tgt.y - p.y), dd = Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y);
+        const cw = Phaser.Math.Clamp(dd * 1.9, 320, 650);
+        this.ball.body.setVelocity(Math.sin(aa) * cw, Math.cos(aa) * cw);
+        this.ballZ = 8; this.ballVZ = Phaser.Math.Clamp(dd * 1.05, 320, 640);
+        p.actT = 0.28; p.act = "pass"; return;
+      }
+    }
+    // shot on goal: PC-assisted aim to the OPEN corner, power scales with distance (long shots carry)
     const gk = (p.side === "home" ? this.away_ : this.home).find((q) => q.isGK && !q.sentOff);
-    const half = PITCH.mouth / 2 - 14;
-    // aim the OPEN corner away from the keeper, so good shots actually go in
+    const half = PITCH.mouth / 2 - 12;
     let aimX = gk ? (gk.x <= PITCH.cx ? PITCH.cx + half : PITCH.cx - half) : PITCH.cx + Phaser.Math.Between(-half, half);
-    aimX += Phaser.Math.Between(-12, 12);
+    aimX += Phaser.Math.Between(-8, 8);
+    const volley = this.ballZ > 36;                              // hitting a ball out of the air = volley / bicycle
     const a = Math.atan2(aimX - p.x, gy - p.y);
-    const pw = (chip ? 380 : 530) * (p.pow || 1);
+    let pw = chip ? Phaser.Math.Clamp(240 + dGoal * 0.5, 320, 560)
+                  : Phaser.Math.Clamp(430 + dGoal * 0.62, 490, 820) * (p.pow || 1);
+    if (volley) pw *= 1.12;
     this.ball.body.setVelocity(Math.sin(a) * pw, Math.cos(a) * pw);
-    this.ballZ = 6; this.ballVZ = chip ? 540 : 200 + Phaser.Math.Between(0, 110);
-    p.actT = 0.26; p.act = "kick"; p.kickCd = 0.25;
+    this.ballZ = chip ? 8 : 5; this.ballVZ = chip ? 520 : 140 + Phaser.Math.Between(0, 110);
+    p.actT = 0.3; p.act = "kick"; p.kickCd = 0.25;
   }
   passBall(p) {
     const mates = (p.side === "home" ? this.home : this.away_).filter((m) => m !== p && !m.isGK && !m.sentOff);
     const fwd = p.side === "home" ? 1 : -1;
+    const fm = Math.hypot(p.faceX, p.faceY) || 1, dirx = p.faceX / fm, diry = p.faceY / fm;
     let best = null, bs = -1e9;
-    for (const m of mates) { const ahead = (m.y - p.y) * fwd; const d = Phaser.Math.Distance.Between(p.x, p.y, m.x, m.y); if (d < 40 || d > 560) continue; const sc = ahead * 1.1 - d * 0.12; if (sc > bs) { bs = sc; best = m; } }
+    for (const m of mates) {
+      const dx = m.x - p.x, dy = m.y - p.y, d = Math.hypot(dx, dy); if (d < 28) continue;
+      const dot = (dx * dirx + dy * diry) / d;                     // alignment with where you point
+      if (dot < 0.25) continue;
+      const sc = dot * 2.0 - d * 0.0016;                           // pass to the team-mate in your aim
+      if (sc > bs) { bs = sc; best = m; }
+    }
     this.owner = null; this.ownerHold = 0;
-    const tgt = best || { x: p.x + p.faceX * 220, y: p.y + p.faceY * 220 };
-    const a = Math.atan2(tgt.x - p.x, tgt.y - p.y);
-    const pw = Phaser.Math.Clamp(Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y) * 2.2, 230, 560);
+    const tgt = best || { x: p.x + dirx * 280, y: p.y + diry * 280 };   // none aligned -> lead pass where you point
+    const a = Math.atan2(tgt.x - p.x, tgt.y - p.y), dd = Phaser.Math.Distance.Between(p.x, p.y, tgt.x, tgt.y);
+    const pw = Phaser.Math.Clamp(dd * 2.0 + 120, 300, 560);
     this.ball.body.setVelocity(Math.sin(a) * pw, Math.cos(a) * pw);
-    this.ballZ = 4; this.ballVZ = 90;
+    this.ballZ = 3; this.ballVZ = 55;
     p.actT = 0.24; p.act = "pass";
   }
   slide(p) { p.act = "tackle"; p.actT = 0.36; const sp = 340; p.body.setVelocity(p.faceX * sp, p.faceY * sp); }
@@ -446,13 +471,23 @@ class Match extends Phaser.Scene {
   }
   carrierAI(p, attackY, fwd) {
     const toGoal = Math.abs(attackY - p.y);
-    if (toGoal < 400 && (p.kickCd || 0) <= 0 && Math.random() < 0.032) { this.shoot(p, Math.random() < 0.2); return; }
-    if (Math.random() < 0.02) { this.passBall(p); return; }
+    if (toGoal < 660 && (p.kickCd || 0) <= 0 && Math.random() < 0.03) { p.faceY = fwd; p.faceX = Phaser.Math.Clamp((PITCH.cx - p.x) / 220, -1, 1); this.shoot(p, toGoal > 470 && Math.random() < 0.4); return; }
+    if (Math.random() < 0.022) { this.passBall(p); return; }
     this.steer(p, PITCH.cx + (p.x - PITCH.cx) * 0.7, attackY, true);
   }
   gkAI(p) {
-    const gy = p.side === "home" ? GOAL_NEAR + 20 : GOAL_FAR - 20;
-    this.steer(p, Phaser.Math.Clamp(this.ball.x, PITCH.cx - PITCH.mouth / 2, PITCH.cx + PITCH.mouth / 2), gy, false);
+    const own = p.side === "home" ? GOAL_NEAR : GOAL_FAR;          // own goal line (fy)
+    const sign = p.side === "home" ? 1 : -1;                       // into the pitch from own goal
+    const b = this.ball, vy = b.body.velocity.y;
+    const incoming = (p.side === "home" ? vy < -60 : vy > 60), dist = Math.abs(b.y - own);
+    if (incoming && dist < 560 && !this.owner) {
+      const tt = (own - b.y) / (vy || sign * -1);                 // time to reach the line -> predicted x
+      const predX = Phaser.Math.Clamp(b.x + b.body.velocity.x * tt, PITCH.cx - PITCH.mouth / 2 - 26, PITCH.cx + PITCH.mouth / 2 + 26);
+      this.steer(p, predX, own + sign * 14, true);                // rush across to it
+      if (dist < 170 && Math.abs(p.x - b.x) < 78) p.diveT = 0.34; // dive/parry as it arrives
+    } else {
+      this.steer(p, Phaser.Math.Clamp(b.x, PITCH.cx - PITCH.mouth / 2, PITCH.cx + PITCH.mouth / 2), own + sign * 18, false);
+    }
   }
 
   updatePossession(dt) {
@@ -475,8 +510,8 @@ class Match extends Phaser.Scene {
       const spd = b.body.speed;
       for (const p of this.players) {
         if (p.kickCd > 0 || p.sentOff) continue;
-        const reach = p.isGK ? 30 : 22, zOk = p.isGK ? this.ballZ < 220 : low;   // keeper grabs high balls (no hovering)
-        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 720 : 300) && (!p.isGK || Math.random() < 0.7)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
+        const reach = p.isGK ? 34 : 24, zOk = p.isGK ? this.ballZ < 230 : low;   // keeper grabs high balls + saves
+        if (zOk && Phaser.Math.Distance.Between(p.x, p.y, b.x, b.y) < reach && spd < (p.isGK ? 880 : 470) && (!p.isGK || Math.random() < 0.86)) { this.owner = p; this.ownerHold = 0; if (p.isGK) p.diveT = 0.3; break; }
       }
     }
   }
