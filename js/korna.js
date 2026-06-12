@@ -233,6 +233,7 @@ class Match extends Phaser.Scene {
     this.drawPitch(g);
     this.netG = this.add.graphics().setDepth(-38);   // net ripple on a goal
     this.goalFx = null;
+    this.dustG = this.add.graphics().setDepth(-36); this.dust = [];   // kicked-up dust puffs
     this.markerG = this.add.graphics().setDepth(90000);
   }
 
@@ -317,6 +318,7 @@ class Match extends Phaser.Scene {
     p.pow = st.power || st.finishing || 1; p.skl = st.skill || 1; p.def = st.defense || st.reach || 1;
     p.homeX = p.x; p.homeY = p.y; p.faceX = 0; p.faceY = side === "home" ? 1 : -1;
     p.actT = 0; p.act = null; p.diveT = 0; p.celebrateT = 0; p.stealCd = 0; p.kickCd = 0; p.sprinting = false;
+    p.phase = Math.random() * 6.28; p.dustCd = 0;   // run-bounce desync + dust timer
     p.shadow = this.add.image(p.x, p.y, "shadow").setDepth(4).setAlpha(0.42);
     p.disp = this.add.sprite(p.x, p.y, prefix + "_idle").setOrigin(0.5, 0.92);
     this.players.push(p);
@@ -367,7 +369,7 @@ class Match extends Phaser.Scene {
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) this.bannerText.setText(""); }
     if (this.justScored > 0) this.justScored -= dt;
     if (this.switchLock > 0) this.switchLock -= dt;
-    for (const p of this.players) { if (p.actT > 0) p.actT -= dt; if (p.diveT > 0) p.diveT -= dt; if (p.stealCd > 0) p.stealCd -= dt; if (p.celebrateT > 0) p.celebrateT -= dt; if (p.kickCd > 0) p.kickCd -= dt; }
+    for (const p of this.players) { if (p.actT > 0) p.actT -= dt; if (p.diveT > 0) p.diveT -= dt; if (p.stealCd > 0) p.stealCd -= dt; if (p.celebrateT > 0) p.celebrateT -= dt; if (p.kickCd > 0) p.kickCd -= dt; if (p.dustCd > 0) p.dustCd -= dt; }
 
     this.updateControlled();
     this.handleInput(dt);
@@ -377,6 +379,7 @@ class Match extends Phaser.Scene {
     this.players.forEach((p) => this.animate(p));
     this.checkGoals();
     this.updateNetFx(dt);
+    this.updateDust(dt);
     this.renderSprites();
     this.updateCam(dt);
     this.updateMini();
@@ -386,6 +389,19 @@ class Match extends Phaser.Scene {
     if (this.ballZ > 0 || this.ballVZ !== 0) {
       this.ballZ += this.ballVZ * dt; this.ballVZ -= GRAV * dt;
       if (this.ballZ <= 0) { this.ballZ = 0; this.ballVZ = Math.abs(this.ballVZ) > 200 ? -this.ballVZ * 0.32 : 0; }
+    }
+  }
+
+  spawnDust(fx, fy, n, big) {
+    for (let i = 0; i < n; i++) this.dust.push({ x: fx + Phaser.Math.Between(-6, 6), y: fy + Phaser.Math.Between(-4, 4), t: big ? 0.55 : 0.36, life: big ? 0.55 : 0.36, r0: big ? 7 : 4 });
+  }
+  updateDust(dt) {
+    const g = this.dustG; g.clear();
+    for (let i = this.dust.length - 1; i >= 0; i--) {
+      const d = this.dust[i]; d.t -= dt; if (d.t <= 0) { this.dust.splice(i, 1); continue; }
+      const prog = 1 - d.t / d.life, w = this.worldOf(d.x, d.y);
+      g.fillStyle(0xece2c8, (1 - prog) * 0.5);
+      g.fillCircle(w.x, w.y, (d.r0 + prog * 9) * w.s);
     }
   }
 
@@ -422,7 +438,7 @@ class Match extends Phaser.Scene {
   }
 
   shoot(p, chip) {
-    this.owner = null; this.ownerHold = 0;
+    this.owner = null; this.ownerHold = 0; this.spawnDust(p.x, p.y, 3, false);
     const gy = p.side === "home" ? GOAL_FAR : GOAL_NEAR, fwd = p.side === "home" ? 1 : -1;
     const dGoal = Math.abs(gy - p.y);
     // A from deep = a lofted CROSS / long ball to a forward team-mate
@@ -473,7 +489,7 @@ class Match extends Phaser.Scene {
     this.ballZ = 3; this.ballVZ = 55;
     p.actT = 0.24; p.act = "pass";
   }
-  slide(p) { p.act = "tackle"; p.actT = 0.36; const sp = 340; p.body.setVelocity(p.faceX * sp, p.faceY * sp); }
+  slide(p) { p.act = "tackle"; p.actT = 0.36; const sp = 340; p.body.setVelocity(p.faceX * sp, p.faceY * sp); this.spawnDust(p.x, p.y, 7, true); }
 
   gkThrow(gk) {
     const mates = (gk.side === "home" ? this.home : this.away_).filter((m) => m !== gk && !m.isGK && !m.sentOff);
@@ -625,11 +641,16 @@ class Match extends Phaser.Scene {
 
   /* ---------- per-frame placement + 2D camera ---------- */
   renderSprites() {
+    const tnow = this.time.now;
     for (const p of this.players) {
       if (p.sentOff) continue;
-      const w = this.worldOf(p.x, p.y), sc = w.s * SPRITE_BASE * p.dispScale;
-      p.disp.setPosition(w.x, w.y).setScale(sc).setDepth(w.y);
-      p.shadow.setPosition(w.x, w.y + 2).setScale(sc * 0.95, sc * 0.62).setDepth(w.y - 0.5);
+      const w = this.worldOf(p.x, p.y), sc = w.s * SPRITE_BASE * p.dispScale, spd = p.body.speed;
+      let lift = 0;
+      if (spd > 60) lift = Math.abs(Math.sin(tnow * 0.018 + p.phase)) * (p.sprinting ? 5 : 3.2) * w.s;   // running bounce
+      if (p.celebrateT > 0) lift += Math.abs(Math.sin(tnow * 0.011)) * 11 * w.s;                          // celebration hop
+      p.disp.setPosition(w.x, w.y - lift).setScale(sc).setDepth(w.y);
+      p.shadow.setPosition(w.x, w.y + 2).setScale(sc * 0.95, sc * 0.6).setDepth(w.y - 0.5).setAlpha(Phaser.Math.Clamp(0.42 - lift * 0.006, 0.12, 0.42));
+      if (p.sprinting && spd > SPRINTV * 0.7 * p.spd && p.dustCd <= 0) { this.spawnDust(p.x, p.y, 1, false); p.dustCd = 0.08; }
     }
     const w = this.worldOf(this.ball.x, this.ball.y), bs = w.s;
     this.ballShadow.setPosition(w.x, w.y).setScale(bs * (1 - Math.min(0.5, this.ballZ / 380)), bs * 0.62).setDepth(w.y - 0.4);
