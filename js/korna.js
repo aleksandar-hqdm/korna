@@ -35,8 +35,8 @@ const AWAY_ROLES = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "FWD", "FWD"];
 /* ZOOMED 3/4 up-the-pitch world (Power Goal). Pitch is a fixed perspective surface;
    the camera scrolls over it in 2D. Tune: top/bot = pitch length, hwNear/hwFar = fan,
    vCurve = far squash, scNear/scFar + SPRITE_BASE = player size, zoom = how close. */
-const W = { cx: 940, top: 200, bot: 2520, hwNear: 880, hwFar: 540, vCurve: 0.70, scNear: 1.0, scFar: 0.45, zoom: 1.6 };
-const SPRITE_BASE = 1.1, ZK = 1.0;
+const W = { cx: 940, top: 190, bot: 2620, hwNear: 940, hwFar: 300, persp: 1.95, scNear: 1.05, scFar: 0.38, zoom: 1.9 };
+const SPRITE_BASE = 1.0, ZK = 1.0;
 const camLerp = 0.16;
 
 /* ----------------------------- Preload ----------------------------- */
@@ -50,6 +50,7 @@ class Preload extends Phaser.Scene {
       if (gk) ["dive", "catch"].forEach((a) => sheet(prefix + "_" + a, prefix + "_" + a));
     };
     Object.values(KID_PREFIX).forEach((p) => loadChar(p, p === "cacko"));
+    Object.values(KID_PREFIX).forEach((p) => this.load.image("portrait_" + p, "assets/portraits/" + p + ".png"));
     this.awayId = "ar86";
     loadChar(this.awayId, false);
     this.load.image("bg", "assets/backgrounds/" + this.awayId + ".png");
@@ -67,7 +68,71 @@ class Preload extends Phaser.Scene {
     g.fillStyle(0xffffff, 1); g.fillCircle(8, 8, 8); g.fillStyle(0x14306a, 1); g.fillCircle(6, 6, 2.3); g.fillCircle(11, 9, 2.3);
     g.lineStyle(1.4, 0x223, 1); g.strokeCircle(8, 8, 8); g.generateTexture("ball", 16, 16); g.destroy();
     const s = this.add.graphics(); s.fillStyle(0x000000, 1); s.fillEllipse(20, 8, 40, 16); s.generateTexture("shadow", 40, 16); s.destroy();
-    this.scene.start("Match", { awayId: this.awayId });
+    this.scene.start("Home");
+  }
+}
+
+/* ----------------------------- Home (title + squad + profiles) ----------------------------- */
+const KID_FLAVOR = {
+  Vanja: "Captain and engine. Box-to-box, never stops running, drags the team forward.",
+  "Fiči": "The wall at the back. Reads everything, nothing gets past him.",
+  Bobo: "The poacher. Always smiling, always lurking, always scoring.",
+  Marko: "Tiny and lightning fast. Burns defenders down the wing.",
+  Jan: "The big one, only seven. A rocket in his right boot.",
+  Cacko: "Big, agile and absolutely fearless between the sticks.",
+};
+class Home extends Phaser.Scene {
+  constructor() { super("Home"); }
+  create() {
+    if (this.textures.exists("bg")) this.add.image(GW / 2, GH / 2, "bg").setDisplaySize(GW, GH).setTint(0x35506a).setAlpha(0.55);
+    this.add.rectangle(GW / 2, GH / 2, GW, GH, 0x0a1322, 0.55);
+    this.add.text(GW / 2, 62, "KORNA", { fontFamily: "Press Start 2P", fontSize: "58px", color: "#ffcf3a" }).setOrigin(0.5).setShadow(0, 5, "#7a2a00", 0, true, true);
+    this.add.text(GW / 2, 116, "STREET CAGE FOOTBALL", { fontFamily: "Press Start 2P", fontSize: "13px", color: "#7fd0ff" }).setOrigin(0.5);
+    this.add.text(GW / 2, 150, KIDS.blurb, { fontFamily: "Trebuchet MS", fontSize: "17px", color: "#dde6f2" }).setOrigin(0.5);
+    this.add.text(GW / 2, 196, "YOUR SQUAD   —   tap a player to scout", { fontFamily: "Press Start 2P", fontSize: "10px", color: "#9fb0c8" }).setOrigin(0.5);
+
+    const roster = [...KIDS.outfield, KIDS.keeper];
+    const n = roster.length, cw = 142, gap = 10, totalW = n * cw + (n - 1) * gap, x0 = GW / 2 - totalW / 2 + cw / 2;
+    roster.forEach((k, i) => {
+      const x = x0 + i * (cw + gap), y = 308, pr = KID_PREFIX[k.name];
+      const bg = this.add.rectangle(x, y, cw, 152, 0x16203a, 1).setStrokeStyle(2, k.captain ? 0xffcf3a : 0x2a3a5c).setInteractive({ useHandCursor: true });
+      if (this.textures.exists("portrait_" + pr)) this.add.image(x, y - 20, "portrait_" + pr).setDisplaySize(98, 98);
+      this.add.text(x, y + 46, k.name.toUpperCase(), { fontFamily: "Press Start 2P", fontSize: "11px", color: "#fff" }).setOrigin(0.5);
+      this.add.text(x, y + 64, k.role + (k.captain ? "  (C)" : ""), { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#ffcf3a" }).setOrigin(0.5);
+      bg.on("pointerover", () => bg.setFillStyle(0x243463)); bg.on("pointerout", () => bg.setFillStyle(0x16203a));
+      bg.on("pointerdown", () => this.showProfile(k, pr));
+    });
+
+    const play = this.add.rectangle(GW / 2, 512, 280, 60, 0xe23b4d).setStrokeStyle(3, 0xffffff, 0.3).setInteractive({ useHandCursor: true });
+    this.add.text(GW / 2, 512, "KICK OFF", { fontFamily: "Press Start 2P", fontSize: "22px", color: "#fff" }).setOrigin(0.5);
+    this.add.text(GW / 2, 556, "vs Argentina · Maradona era · press SPACE", { fontFamily: "Trebuchet MS", fontSize: "14px", color: "#dde6f2" }).setOrigin(0.5);
+    const go = () => this.scene.start("Match", { awayId: "ar86" });
+    play.on("pointerover", () => play.setFillStyle(0xff5566)); play.on("pointerout", () => play.setFillStyle(0xe23b4d));
+    play.on("pointerdown", go);
+    this.input.keyboard.once("keydown-SPACE", go); this.input.keyboard.once("keydown-ENTER", go);
+  }
+
+  showProfile(k, pr) {
+    if (this.profile) this.profile.destroy();
+    const c = this.add.container(0, 0).setDepth(1000), cx = GW / 2, cy = GH / 2;
+    const dim = this.add.rectangle(cx, cy, GW, GH, 0x05070d, 0.88).setInteractive();
+    const panel = this.add.rectangle(cx, cy, 660, 400, 0x121c33).setStrokeStyle(3, k.captain ? 0xffcf3a : 0x35507a);
+    c.add([dim, panel]);
+    if (this.textures.exists("portrait_" + pr)) c.add(this.add.image(cx - 190, cy - 34, "portrait_" + pr).setDisplaySize(200, 200));
+    c.add(this.add.text(cx - 78, cy - 138, k.name.toUpperCase(), { fontFamily: "Press Start 2P", fontSize: "26px", color: "#fff" }).setOrigin(0, 0.5));
+    c.add(this.add.text(cx - 78, cy - 104, k.role + (k.captain ? "   •   CAPTAIN" : ""), { fontFamily: "Press Start 2P", fontSize: "11px", color: "#ffcf3a" }).setOrigin(0, 0.5));
+    c.add(this.add.text(cx - 78, cy - 80, KID_FLAVOR[k.name] || "", { fontFamily: "Trebuchet MS", fontSize: "16px", color: "#dde6f2", wordWrap: { width: 350 }, lineSpacing: 3 }).setOrigin(0, 0));
+    const st = k.stats || {}, fourth = st.reach ? ["REACH", st.reach] : st.defense ? ["DEFENSE", st.defense] : st.finishing ? ["FINISH", st.finishing] : ["STAMINA", st.stamina];
+    const rows = [["SPEED", st.speed], ["ACCEL", st.accel], ["POWER", st.power], ["SKILL", st.skill], fourth];
+    rows.forEach((s, i) => {
+      if (s[1] == null) return; const y = cy + 4 + i * 30, v = Phaser.Math.Clamp((s[1] - 0.7) / 0.75, 0.06, 1);
+      c.add(this.add.text(cx - 78, y, s[0], { fontFamily: "Press Start 2P", fontSize: "8px", color: "#9fb0c8" }).setOrigin(0, 0.5));
+      c.add(this.add.rectangle(cx + 6, y, 230, 11, 0x223150).setOrigin(0, 0.5));
+      c.add(this.add.rectangle(cx + 6, y, 230 * v, 11, v > 0.78 ? 0xffcf3a : 0x46b06a).setOrigin(0, 0.5));
+    });
+    c.add(this.add.text(cx, cy + 172, "tap anywhere to close", { fontFamily: "Trebuchet MS", fontSize: "13px", color: "#8593ab" }).setOrigin(0.5));
+    dim.on("pointerdown", () => { c.destroy(); this.profile = null; });
+    this.profile = c;
   }
 }
 
@@ -118,7 +183,7 @@ class Match extends Phaser.Scene {
   /* ---------- field -> world (baked 3/4 perspective; camera scrolls over it) ---------- */
   worldOf(fx, fy) {
     const ny = Phaser.Math.Clamp(fy / PITCH.h, 0, 1);   // 0 near(bottom) .. 1 far(top)
-    const vy = Math.pow(ny, W.vCurve);
+    const vy = ny * (1 + W.persp) / (1 + ny * W.persp);  // TRUE 3D perspective (1/z), far end recedes
     const hw = Phaser.Math.Linear(W.hwNear, W.hwFar, vy);
     return {
       x: W.cx + (fx / PITCH.w - 0.5) * 2 * hw,
@@ -165,6 +230,9 @@ class Match extends Phaser.Scene {
       const c = i % 2 ? lerpC([0x2a, 0x80, 0x49], [0x33, 0x90, 0x53], t) : lerpC([0x25, 0x74, 0x41], [0x2d, 0x86, 0x4c], t);
       g.fillStyle(c, 1); g.fillPoints([P(L, a), P(R, a), P(R, b), P(L, b)], true);
     }
+    // converging mowing lines down the pitch -> 3D grid that recedes into the distance
+    g.lineStyle(2, 0x1d6234, 0.5);
+    for (let k = 1; k < 12; k++) { const fx = PITCH.w * k / 12; g.strokePoints([P(fx, GOAL_NEAR), P(fx, GOAL_FAR)], false, false); }
     const line = (pts, close, lw, al) => { g.lineStyle(lw, 0xffffff, al == null ? 0.9 : al); g.strokePoints(pts.map(P), close, close); };
     line([[L, GOAL_NEAR], [R, GOAL_NEAR], [R, GOAL_FAR], [L, GOAL_FAR]], true, 4);        // boundary
     line([[L, HALF], [R, HALF]], false, 4);                                                // halfway
@@ -490,5 +558,5 @@ window.KGAME = new Phaser.Game({
   pixelArt: true,
   physics: { default: "arcade", arcade: { debug: false } },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-  scene: [Preload, Match],
+  scene: [Preload, Home, Match],
 });
