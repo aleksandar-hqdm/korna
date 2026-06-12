@@ -48,15 +48,16 @@ class Preload extends Phaser.Scene {
   constructor() { super("Preload"); }
   preload() {
     this.load.maxParallelDownloads = 120;
-    const sheet = (key, file) => this.load.spritesheet(key, "assets/sprites/" + file + ".png", { frameWidth: 64, frameHeight: 64 });
+    const AV = "?v=19";   // asset version: bump when sprites/portraits change so browsers refetch
+    const sheet = (key, file) => this.load.spritesheet(key, "assets/sprites/" + file + ".png" + AV, { frameWidth: 64, frameHeight: 64 });
     const loadChar = (prefix, gk) => {
       ANIMS.forEach((a) => sheet(prefix + "_" + a, prefix + "_" + a));
       if (gk) ["dive", "catch"].forEach((a) => sheet(prefix + "_" + a, prefix + "_" + a));
     };
     Object.values(KID_PREFIX).forEach((p) => loadChar(p, p === "cacko"));
-    Object.values(KID_PREFIX).forEach((p) => this.load.image("portrait_" + p, "assets/portraits/" + p + ".png"));
-    TEAMS.forEach((t) => { loadChar(t.id, false); this.load.image("portrait_" + t.id, "assets/portraits/" + t.id + ".png"); });  // all opponents
-    this.load.image("bg", "assets/backgrounds/ar86.png");
+    Object.values(KID_PREFIX).forEach((p) => this.load.image("portrait_" + p, "assets/portraits/" + p + ".png" + AV));
+    TEAMS.forEach((t) => { loadChar(t.id, false); this.load.image("portrait_" + t.id, "assets/portraits/" + t.id + ".png" + AV); });  // all opponents
+    this.load.image("bg", "assets/backgrounds/ar86.png" + AV);
     this.add.text(GW / 2, GH / 2, "KORNA", { fontFamily: "Press Start 2P", fontSize: "40px", color: "#ffcf3a" }).setOrigin(0.5);
   }
   create() {
